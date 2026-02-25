@@ -23,8 +23,7 @@ SESSION = requests.Session()
 SESSION.headers.update(
     {
         "User-Agent": (
-            "Mozilla/5.0 (research project; educational use) "
-            "PeftScraper/1.0"
+            "Mozilla/5.0 (research project; educational use) " "PeftScraper/1.0"
         )
     }
 )

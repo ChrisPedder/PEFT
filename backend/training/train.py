@@ -40,7 +40,15 @@ LORA_CONFIG = LoraConfig(
     lora_dropout=0.05,
     bias="none",
     task_type="CAUSAL_LM",
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+    target_modules=[
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+    ],
 )
 
 QUANTIZATION_CONFIG = BitsAndBytesConfig(
@@ -53,10 +61,7 @@ QUANTIZATION_CONFIG = BitsAndBytesConfig(
 
 def format_instruction(sample: dict) -> str:
     """Format a training sample into Mistral's chat template."""
-    return (
-        f"<s>[INST] {sample['instruction']} [/INST] "
-        f"{sample['output']}</s>"
-    )
+    return f"<s>[INST] {sample['instruction']} [/INST] " f"{sample['output']}</s>"
 
 
 def load_dataset(data_path: str) -> Dataset:

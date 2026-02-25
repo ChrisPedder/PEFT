@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 
 import boto3
 
-
 # ---------------------------------------------------------------------------
 # HuggingFace training container images by region
 # ---------------------------------------------------------------------------
@@ -112,9 +111,7 @@ def poll_training_job(
     terminal_states = {"Completed", "Failed", "Stopped"}
 
     while True:
-        response = sagemaker_client.describe_training_job(
-            TrainingJobName=job_name
-        )
+        response = sagemaker_client.describe_training_job(TrainingJobName=job_name)
         status = response["TrainingJobStatus"]
         print(f"Training job '{job_name}' status: {status}")
 

@@ -119,9 +119,7 @@ class TestGenerateQaPairs:
     @patch("backend.scraper.clean_and_format.client")
     def test_generate_qa_pairs_truncates_long_text(self, mock_client):
         """generate_qa_pairs truncates text longer than 6000 chars."""
-        qa_json = json.dumps(
-            [{"instruction": "Q?", "output": "A."}]
-        )
+        qa_json = json.dumps([{"instruction": "Q?", "output": "A."}])
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text=qa_json)]
         mock_client.messages.create.return_value = mock_response

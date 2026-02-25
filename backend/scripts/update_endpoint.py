@@ -19,7 +19,6 @@ from datetime import datetime, timezone
 
 import boto3
 
-
 # ---------------------------------------------------------------------------
 # HuggingFace inference container images by region
 # ---------------------------------------------------------------------------
@@ -60,9 +59,7 @@ def find_latest_model(s3_client, bucket: str) -> str:
                 model_objects.append(obj)
 
     if not model_objects:
-        raise FileNotFoundError(
-            f"No model.tar.gz files found in s3://{bucket}/"
-        )
+        raise FileNotFoundError(f"No model.tar.gz files found in s3://{bucket}/")
 
     # Sort by LastModified descending to find the most recent
     model_objects.sort(key=lambda o: o["LastModified"], reverse=True)
@@ -171,9 +168,7 @@ def update_endpoint(
     terminal_states = {"InService", "Failed", "OutOfService"}
 
     while True:
-        response = sagemaker_client.describe_endpoint(
-            EndpointName=endpoint_name
-        )
+        response = sagemaker_client.describe_endpoint(EndpointName=endpoint_name)
         status = response["EndpointStatus"]
         print(f"Endpoint '{endpoint_name}' status: {status}")
 
