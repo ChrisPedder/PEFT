@@ -17,7 +17,16 @@ export class ScraperBatchStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ScraperBatchStackProps) {
     super(scope, id, props);
 
-    const vpc = ec2.Vpc.fromLookup(this, "DefaultVpc", { isDefault: true });
+    const vpc = new ec2.Vpc(this, "BatchVpc", {
+      maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [
+        {
+          name: "Public",
+          subnetType: ec2.SubnetType.PUBLIC,
+        },
+      ],
+    });
 
     const securityGroup = new ec2.SecurityGroup(this, "BatchSecurityGroup", {
       vpc,
