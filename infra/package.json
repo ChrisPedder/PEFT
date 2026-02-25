@@ -7,7 +7,8 @@
     "watch": "tsc -w",
     "cdk": "cdk",
     "synth": "cdk synth",
-    "deploy": "cdk deploy PeftTrainingStack --exclusively --require-approval never && cdk deploy --all --require-approval never",
+    "deploy": "cdk deploy PeftTrainingStack --exclusively --require-approval never && cdk deploy PeftStorageStack PeftTrainingStack PeftAuthStack --require-approval never",
+    "deploy:all": "cdk deploy PeftTrainingStack --exclusively --require-approval never && cdk deploy --all --require-approval never",
     "diff": "cdk diff",
     "test": "jest"
   },

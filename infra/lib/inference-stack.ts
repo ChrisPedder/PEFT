@@ -35,7 +35,6 @@ export class InferenceStack extends cdk.Stack {
       "EndpointConfig",
       {
         endpointConfigName: "peft-obama-endpoint-config",
-        executionRoleArn: endpointExecutionRole.roleArn,
         productionVariants: [
           {
             variantName: "default",
