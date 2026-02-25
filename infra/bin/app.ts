@@ -22,7 +22,6 @@ const trainingStack = new TrainingStack(app, "PeftTrainingStack", {
   env,
   trainingDataBucket: storageStack.trainingDataBucket,
   modelBucket: storageStack.modelBucket,
-  dataBucket: storageStack.dataBucket, // Temporary: keeps cross-stack export alive. Remove after one deploy.
 });
 
 // Auth (Cognito User Pool)
