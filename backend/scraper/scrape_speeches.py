@@ -6,7 +6,9 @@ Scrape Obama speeches from:
 Outputs raw speeches as JSONL to backend/scraper/data/raw_speeches.jsonl
 """
 
+import argparse
 import json
+import logging
 import re
 import time
 from pathlib import Path
@@ -14,7 +16,9 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
-from tqdm import tqdm
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
 OUTPUT_FILE = DATA_DIR / "raw_speeches.jsonl"
@@ -39,7 +43,7 @@ def fetch_page(url: str) -> BeautifulSoup | None:
         resp.raise_for_status()
         return BeautifulSoup(resp.text, "lxml")
     except requests.RequestException as e:
-        print(f"  [WARN] Failed to fetch {url}: {e}")
+        logger.warning("Failed to fetch %s: %s", url, e)
         return None
 
 
@@ -64,7 +68,7 @@ def scrape_app_index() -> list[dict]:
 
     while True:
         url = f"{APP_SEARCH}&page={page}"
-        print(f"  Fetching APP index page {page}...")
+        logger.info("Fetching APP index page %d...", page)
         soup = fetch_page(url)
         if soup is None:
             break
@@ -133,7 +137,7 @@ def scrape_wh_index() -> list[dict]:
 
     while True:
         url = f"{WH_INDEX}?page={page}"
-        print(f"  Fetching WH index page {page}...")
+        logger.info("Fetching WH index page %d...", page)
         soup = fetch_page(url)
         if soup is None:
             break
@@ -208,47 +212,94 @@ def deduplicate(speeches: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Incremental S3 upload
+# ---------------------------------------------------------------------------
+
+
+def upload_speech_to_s3(speech: dict, index: int, bucket: str) -> None:
+    """Upload a single speech as an individual S3 object."""
+    import boto3
+
+    s3 = boto3.client("s3")
+    key = f"raw/individual/{index:05d}.jsonl"
+    s3.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=json.dumps(speech) + "\n",
+        ContentType="application/json",
+    )
+    logger.info("Uploaded to s3://%s/%s", bucket, key)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Scrape Obama speeches")
+    parser.add_argument(
+        "--bucket",
+        default=None,
+        help="S3 bucket for incremental uploads (optional)",
+    )
+    args = parser.parse_args()
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    all_speeches: list[dict] = []
+    speech_index = 0
 
-    # Source 1: American Presidency Project
-    print("=== Scraping American Presidency Project ===")
-    app_index = scrape_app_index()
-    print(f"  Found {len(app_index)} entries")
-
-    for meta in tqdm(app_index, desc="APP speeches"):
-        speech = scrape_app_speech(meta)
-        if speech:
-            all_speeches.append(speech)
-        time.sleep(REQUEST_DELAY)
-
-    # Source 2: White House Archives
-    print("\n=== Scraping White House Archives ===")
-    wh_index = scrape_wh_index()
-    print(f"  Found {len(wh_index)} entries")
-
-    for meta in tqdm(wh_index, desc="WH speeches"):
-        speech = scrape_wh_speech(meta)
-        if speech:
-            all_speeches.append(speech)
-        time.sleep(REQUEST_DELAY)
-
-    # Deduplicate
-    all_speeches = deduplicate(all_speeches)
-    print(f"\n=== Total unique speeches: {len(all_speeches)} ===")
-
-    # Write output
+    # Open output file in append mode so each speech is persisted immediately
     with open(OUTPUT_FILE, "w") as f:
-        for speech in all_speeches:
+        # Source 1: American Presidency Project
+        logger.info("=== Scraping American Presidency Project ===")
+        app_index = scrape_app_index()
+        logger.info("Found %d entries", len(app_index))
+
+        for i, meta in enumerate(app_index, 1):
+            speech = scrape_app_speech(meta)
+            if speech:
+                f.write(json.dumps(speech) + "\n")
+                f.flush()
+                if args.bucket:
+                    upload_speech_to_s3(speech, speech_index, args.bucket)
+                speech_index += 1
+            logger.info("[APP %d/%d] %s", i, len(app_index), meta["title"])
+            time.sleep(REQUEST_DELAY)
+
+        # Source 2: White House Archives
+        logger.info("=== Scraping White House Archives ===")
+        wh_index = scrape_wh_index()
+        logger.info("Found %d entries", len(wh_index))
+
+        for i, meta in enumerate(wh_index, 1):
+            speech = scrape_wh_speech(meta)
+            if speech:
+                f.write(json.dumps(speech) + "\n")
+                f.flush()
+                if args.bucket:
+                    upload_speech_to_s3(speech, speech_index, args.bucket)
+                speech_index += 1
+            logger.info("[WH %d/%d] %s", i, len(wh_index), meta["title"])
+            time.sleep(REQUEST_DELAY)
+
+    # Re-read to deduplicate (need full list for comparison)
+    all_speeches: list[dict] = []
+    with open(OUTPUT_FILE) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                all_speeches.append(json.loads(line))
+
+    unique_speeches = deduplicate(all_speeches)
+    logger.info("Total unique speeches: %d (from %d raw)", len(unique_speeches), len(all_speeches))
+
+    # Rewrite with deduplicated set
+    with open(OUTPUT_FILE, "w") as f:
+        for speech in unique_speeches:
             f.write(json.dumps(speech) + "\n")
 
-    print(f"Saved to {OUTPUT_FILE}")
+    logger.info("Saved to %s", OUTPUT_FILE)
 
 
 if __name__ == "__main__":

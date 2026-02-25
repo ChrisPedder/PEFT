@@ -6,13 +6,16 @@ Output: backend/scraper/data/training_data.jsonl
 """
 
 import json
+import logging
 import re
 import sys
 from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
-from tqdm import tqdm
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
 INPUT_FILE = DATA_DIR / "raw_speeches.jsonl"
@@ -111,14 +114,14 @@ def generate_qa_pairs(speech: dict) -> list[dict]:
         return valid_pairs
 
     except (json.JSONDecodeError, ClientError) as e:
-        print(f"  [WARN] Failed to generate Q&A for '{speech.get('title')}': {e}")
+        logger.warning("Failed to generate Q&A for '%s': %s", speech.get("title"), e)
         return []
 
 
 def main() -> None:
     if not INPUT_FILE.exists():
-        print(f"Input file not found: {INPUT_FILE}")
-        print("Run scrape_speeches.py first.")
+        logger.error("Input file not found: %s", INPUT_FILE)
+        logger.error("Run scrape_speeches.py first.")
         sys.exit(1)
 
     # Load raw speeches
@@ -129,7 +132,7 @@ def main() -> None:
             if line:
                 speeches.append(json.loads(line))
 
-    print(f"Loaded {len(speeches)} speeches")
+    logger.info("Loaded %d speeches", len(speeches))
 
     # Clean texts
     for s in speeches:
@@ -137,21 +140,25 @@ def main() -> None:
 
     # Generate Q&A pairs
     all_pairs: list[dict] = []
-    for speech in tqdm(speeches, desc="Generating Q&A pairs"):
+    for i, speech in enumerate(speeches, 1):
         pairs = generate_qa_pairs(speech)
         all_pairs.extend(pairs)
-        # Brief pause to respect rate limits
         if pairs:
-            print(f"  Generated {len(pairs)} pairs for: {speech.get('title', '')[:60]}")
+            logger.info(
+                "[%d/%d] Generated %d pairs for: %s",
+                i, len(speeches), len(pairs), speech.get("title", "")[:60],
+            )
+        else:
+            logger.info("[%d/%d] No pairs for: %s", i, len(speeches), speech.get("title", "")[:60])
 
-    print(f"\nTotal Q&A pairs generated: {len(all_pairs)}")
+    logger.info("Total Q&A pairs generated: %d", len(all_pairs))
 
     # Write output
     with open(OUTPUT_FILE, "w") as f:
         for pair in all_pairs:
             f.write(json.dumps(pair) + "\n")
 
-    print(f"Saved to {OUTPUT_FILE}")
+    logger.info("Saved to %s", OUTPUT_FILE)
 
 
 if __name__ == "__main__":

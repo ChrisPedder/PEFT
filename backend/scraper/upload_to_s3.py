@@ -6,9 +6,13 @@ Usage:
 """
 
 import argparse
+import logging
 from pathlib import Path
 
 import boto3
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -37,13 +41,13 @@ def main() -> None:
     for local_name, s3_key in files_to_upload:
         local_path = DATA_DIR / local_name
         if local_path.exists():
-            print(f"Uploading {local_name} → s3://{bucket}/{s3_key}")
+            logger.info("Uploading %s -> s3://%s/%s", local_name, bucket, s3_key)
             s3.upload_file(str(local_path), bucket, s3_key)
-            print(f"  Done ({local_path.stat().st_size:,} bytes)")
+            logger.info("Done (%s bytes)", f"{local_path.stat().st_size:,}")
         else:
-            print(f"Skipping {local_name} (not found)")
+            logger.info("Skipping %s (not found)", local_name)
 
-    print("\nUpload complete.")
+    logger.info("Upload complete.")
 
 
 if __name__ == "__main__":

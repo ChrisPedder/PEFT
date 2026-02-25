@@ -110,10 +110,13 @@ export class ScraperBatchStack extends cdk.Stack {
           executionRole,
           jobRole: taskRole,
           assignPublicIp: true,
+          environment: {
+            DATA_BUCKET: props.dataBucket.bucketName,
+          },
           command: [
             "sh",
             "-c",
-            "python -m scraper.scrape_speeches && python -m scraper.upload_to_s3",
+            "python -m scraper.scrape_speeches --bucket $DATA_BUCKET && python -m scraper.upload_to_s3",
           ],
         }
       ),

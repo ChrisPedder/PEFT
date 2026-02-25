@@ -3,9 +3,11 @@
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
+import boto3
 import responses
+from moto import mock_aws
 
 # Ensure the backend package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -22,6 +24,7 @@ from backend.scraper.scrape_speeches import (
     scrape_app_speech,
     scrape_wh_index,
     scrape_wh_speech,
+    upload_speech_to_s3,
 )
 
 
@@ -318,6 +321,7 @@ def test_main(
     with (
         patch("backend.scraper.scrape_speeches.DATA_DIR", tmp_path),
         patch("backend.scraper.scrape_speeches.OUTPUT_FILE", output_file),
+        patch("sys.argv", ["scrape_speeches.py"]),
     ):
         main()
 
@@ -328,3 +332,73 @@ def test_main(
     assert len(lines) == 2
     assert lines[0]["title"] == "Speech One"
     assert lines[1]["title"] == "Speech Two"
+
+
+@patch("backend.scraper.scrape_speeches.time.sleep")
+@patch("backend.scraper.scrape_speeches.scrape_wh_speech")
+@patch("backend.scraper.scrape_speeches.scrape_wh_index")
+@patch("backend.scraper.scrape_speeches.scrape_app_speech")
+@patch("backend.scraper.scrape_speeches.scrape_app_index")
+def test_main_with_bucket_uploads_to_s3(
+    mock_app_index,
+    mock_app_speech,
+    mock_wh_index,
+    mock_wh_speech,
+    mock_sleep,
+    tmp_path,
+):
+    """main uploads individual speeches to S3 when --bucket is provided."""
+    speech_data = {
+        "title": "Speech One",
+        "date": "Jan 1, 2010",
+        "source": "app",
+        "url": "https://example.com/s1",
+        "text": "Full text of speech one. " * 20,
+    }
+    mock_app_index.return_value = [
+        {
+            "url": "https://example.com/s1",
+            "title": "Speech One",
+            "date": "Jan 1, 2010",
+            "source": "app",
+        }
+    ]
+    mock_app_speech.return_value = speech_data
+    mock_wh_index.return_value = []
+    mock_wh_speech.return_value = None
+
+    output_file = tmp_path / "raw_speeches.jsonl"
+
+    mock_s3_upload = MagicMock()
+
+    with (
+        patch("backend.scraper.scrape_speeches.DATA_DIR", tmp_path),
+        patch("backend.scraper.scrape_speeches.OUTPUT_FILE", output_file),
+        patch("backend.scraper.scrape_speeches.upload_speech_to_s3", mock_s3_upload),
+        patch("sys.argv", ["scrape_speeches.py", "--bucket", "my-test-bucket"]),
+    ):
+        main()
+
+    # Verify S3 upload was called for the one successful speech
+    mock_s3_upload.assert_called_once_with(speech_data, 0, "my-test-bucket")
+
+    # Verify local file was still written
+    assert output_file.exists()
+    with open(output_file) as f:
+        lines = [json.loads(line) for line in f if line.strip()]
+    assert len(lines) == 1
+    assert lines[0]["title"] == "Speech One"
+
+
+@mock_aws
+def test_upload_speech_to_s3():
+    """upload_speech_to_s3 puts a single speech object to S3."""
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket="my-bucket")
+
+    speech = {"title": "Test", "text": "Some text"}
+    upload_speech_to_s3(speech, 42, "my-bucket")
+
+    obj = s3.get_object(Bucket="my-bucket", Key="raw/individual/00042.jsonl")
+    body = obj["Body"].read().decode()
+    assert json.loads(body.strip()) == speech
