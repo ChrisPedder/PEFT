@@ -205,3 +205,23 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Node.js
+node_modules/
+
+# CDK
+cdk.out/
+infra/dist/
+
+# Frontend build output
+frontend/dist/
+
+# Scraped data (large files, regeneratable)
+backend/scraper/data/
+
+# Model artifacts (too large for git)
+*.bin
+*.safetensors
+*.gguf
+output/
+merged_model/
