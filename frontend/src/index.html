@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ask Obama — PEFT Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header>
+        <h1>Ask Obama</h1>
+        <p class="subtitle">
+          An AI fine-tuned to answer questions in Barack Obama's speaking style
+        </p>
+      </header>
+
+      <div id="chat-container">
+        <div id="messages"></div>
+      </div>
+
+      <form id="ask-form">
+        <input
+          type="text"
+          id="question-input"
+          placeholder="Ask a question about policy, leadership, or American values..."
+          autocomplete="off"
+          required
+        />
+        <button type="submit" id="submit-btn">Ask</button>
+      </form>
+
+      <div id="status-bar" class="hidden"></div>
+
+      <footer>
+        <p>
+          Powered by Mistral-7B fine-tuned with QLoRA &middot;
+          <a href="https://github.com" target="_blank">Source</a>
+        </p>
+      </footer>
+    </main>
+
+    <script type="module" src="./app.ts"></script>
+  </body>
+</html>
