@@ -40,7 +40,7 @@ export class InferenceStack extends cdk.Stack {
           {
             variantName: "default",
             instanceType: "ml.g5.xlarge",
-            initialInstanceCount: 0, // Start at zero — scale-to-zero
+            initialInstanceCount: 1, // Min for EndpointConfig; auto-scaling scales to zero after idle
             modelName: "peft-obama-model", // Created after training via CLI
             routingConfig: {
               routingStrategy: "LEAST_OUTSTANDING_REQUESTS",
