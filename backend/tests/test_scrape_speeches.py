@@ -17,6 +17,7 @@ from backend.scraper.scrape_speeches import (
     APP_SEARCH,
     WH_BASE,
     WH_INDEX,
+    _is_obama_speech,
     deduplicate,
     fetch_page,
     main,
@@ -175,6 +176,10 @@ def test_scrape_wh_index(mock_sleep):
       <span class="date-display-single">April 10, 2012</span>
     </div>
     <div class="views-row">
+      <h3><a href="/briefing-room/speeches/vp-1">Remarks by the Vice President at Summit</a></h3>
+      <span class="date-display-single">April 11, 2012</span>
+    </div>
+    <div class="views-row">
       <h3><a href="/briefing-room/speeches/remarks-2">Weekly Address</a></h3>
       <time>April 14, 2012</time>
     </div>
@@ -199,6 +204,7 @@ def test_scrape_wh_index(mock_sleep):
 
     result = scrape_wh_index()
 
+    # VP entry should be filtered out
     assert len(result) == 2
     assert result[0]["title"] == "Remarks at Town Hall"
     assert result[0]["source"] == "wh_archives"
@@ -388,6 +394,18 @@ def test_main_with_bucket_uploads_to_s3(
         lines = [json.loads(line) for line in f if line.strip()]
     assert len(lines) == 1
     assert lines[0]["title"] == "Speech One"
+
+
+def test_is_obama_speech_filters_non_obama():
+    """_is_obama_speech rejects VP, First Lady, and press briefing titles."""
+    assert _is_obama_speech("Remarks by the President at Town Hall") is True
+    assert _is_obama_speech("Weekly Address: The Economy") is True
+    assert _is_obama_speech("Remarks by the Vice President at Summit") is False
+    assert _is_obama_speech("Remarks by the First Lady at Reception") is False
+    assert _is_obama_speech("Remarks by the Second Lady at Event") is False
+    assert _is_obama_speech("Press Briefing by Press Secretary") is False
+    assert _is_obama_speech("Press Gaggle by Press Secretary") is False
+    assert _is_obama_speech("Statement by the Press Secretary on Syria") is False
 
 
 @mock_aws

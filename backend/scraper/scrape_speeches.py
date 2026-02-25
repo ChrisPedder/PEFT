@@ -134,10 +134,29 @@ def scrape_app_speech(meta: dict) -> dict | None:
 WH_BASE = "https://obamawhitehouse.archives.gov"
 WH_INDEX = f"{WH_BASE}/briefing-room/speeches-and-remarks"
 
+# Title prefixes that indicate a non-Obama speaker
+_WH_SKIP_PREFIXES = (
+    "remarks by the vice president",
+    "remarks by the first lady",
+    "remarks by the second lady",
+    "remarks by vice president",
+    "remarks by first lady",
+    "press briefing",
+    "press gaggle",
+    "statement by the press secretary",
+)
+
+
+def _is_obama_speech(title: str) -> bool:
+    """Return True if the title likely refers to a speech by President Obama."""
+    lower = title.lower().strip()
+    return not lower.startswith(_WH_SKIP_PREFIXES)
+
 
 def scrape_wh_index() -> list[dict]:
     """Scrape the White House archives index for speech URLs."""
     urls: list[dict] = []
+    skipped = 0
     page = 0
 
     while True:
@@ -155,10 +174,14 @@ def scrape_wh_index() -> list[dict]:
             link_el = item.select_one("h3 a, .field-title a")
             date_el = item.select_one(".date-display-single, time")
             if link_el and link_el.get("href"):
+                title = link_el.get_text(strip=True)
+                if not _is_obama_speech(title):
+                    skipped += 1
+                    continue
                 urls.append(
                     {
                         "url": urljoin(WH_BASE, link_el["href"]),
-                        "title": link_el.get_text(strip=True),
+                        "title": title,
                         "date": date_el.get_text(strip=True) if date_el else "",
                         "source": "wh_archives",
                     }
@@ -167,6 +190,7 @@ def scrape_wh_index() -> list[dict]:
         page += 1
         time.sleep(REQUEST_DELAY)
 
+    logger.info("Skipped %d non-Obama entries from WH archives", skipped)
     return urls
 
 
