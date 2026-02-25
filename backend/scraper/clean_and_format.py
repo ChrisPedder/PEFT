@@ -146,10 +146,18 @@ def main() -> None:
         if pairs:
             logger.info(
                 "[%d/%d] Generated %d pairs for: %s",
-                i, len(speeches), len(pairs), speech.get("title", "")[:60],
+                i,
+                len(speeches),
+                len(pairs),
+                speech.get("title", "")[:60],
             )
         else:
-            logger.info("[%d/%d] No pairs for: %s", i, len(speeches), speech.get("title", "")[:60])
+            logger.info(
+                "[%d/%d] No pairs for: %s",
+                i,
+                len(speeches),
+                speech.get("title", "")[:60],
+            )
 
     logger.info("Total Q&A pairs generated: %d", len(all_pairs))
 

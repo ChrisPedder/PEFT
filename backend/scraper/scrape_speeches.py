@@ -292,7 +292,11 @@ def main() -> None:
                 all_speeches.append(json.loads(line))
 
     unique_speeches = deduplicate(all_speeches)
-    logger.info("Total unique speeches: %d (from %d raw)", len(unique_speeches), len(all_speeches))
+    logger.info(
+        "Total unique speeches: %d (from %d raw)",
+        len(unique_speeches),
+        len(all_speeches),
+    )
 
     # Rewrite with deduplicated set
     with open(OUTPUT_FILE, "w") as f:
