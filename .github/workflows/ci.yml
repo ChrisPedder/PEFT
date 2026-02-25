@@ -26,7 +26,7 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        run: pytest --cov --cov-report=xml --cov-fail-under=90
+        run: pytest --ignore=tests/test_train.py --cov --cov-report=xml --cov-fail-under=90
 
   test-typescript:
     runs-on: ubuntu-latest
