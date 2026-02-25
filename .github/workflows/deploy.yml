@@ -42,11 +42,5 @@ jobs:
       - run: npm run build
         working-directory: frontend
 
-      # Deploy TrainingStack first to drop the old dataBucket cross-stack
-      # import before StorageStack tries to remove the corresponding export.
-      # TODO: revert to just `cdk deploy --all` after one successful deploy.
-      - run: npx cdk deploy PeftTrainingStack --exclusively --require-approval never
-        working-directory: infra
-
-      - run: npx cdk deploy --all --require-approval never
+      - run: npm run deploy
         working-directory: infra
