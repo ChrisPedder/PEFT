@@ -35,8 +35,8 @@ jobs:
       - name: Update endpoint
         working-directory: backend
         run: |
-          ARGS=""
           if [ -n "${{ inputs.model_data_url }}" ]; then
-            ARGS="--model-data-url ${{ inputs.model_data_url }}"
+            python scripts/update_endpoint.py --model-data-url "${{ inputs.model_data_url }}"
+          else
+            python scripts/update_endpoint.py
           fi
-          python scripts/update_endpoint.py $ARGS
