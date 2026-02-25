@@ -129,10 +129,13 @@ def create_endpoint_config(
         EndpointConfigName=config_name,
         ProductionVariants=[
             {
-                "VariantName": "AllTraffic",
+                "VariantName": "default",
                 "ModelName": model_name,
                 "InstanceType": instance_type,
                 "InitialInstanceCount": 1,
+                "RoutingConfig": {
+                    "RoutingStrategy": "LEAST_OUTSTANDING_REQUESTS",
+                },
             }
         ],
     )

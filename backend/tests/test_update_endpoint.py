@@ -118,10 +118,13 @@ class TestUpdateEndpoint:
             EndpointConfigName=config_name,
             ProductionVariants=[
                 {
-                    "VariantName": "AllTraffic",
+                    "VariantName": "default",
                     "ModelName": model_name,
                     "InstanceType": "ml.g5.xlarge",
                     "InitialInstanceCount": 1,
+                    "RoutingConfig": {
+                        "RoutingStrategy": "LEAST_OUTSTANDING_REQUESTS",
+                    },
                 }
             ],
         )
