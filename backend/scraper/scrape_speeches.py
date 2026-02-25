@@ -57,6 +57,11 @@ APP_SEARCH = (
     "?field-keywords=&field-keywords2=&field-keywords3="
     "&from%5Bdate%5D=01-20-2009&to%5Bdate%5D=01-20-2017"
     "&person2=200300"  # Barack Obama
+    "&category2%5B%5D=8"  # Spoken Addresses and Remarks
+    "&category2%5B%5D=46"  # Inaugural Addresses
+    "&category2%5B%5D=45"  # State of the Union Addresses
+    "&category2%5B%5D=52"  # Farewell Addresses
+    "&category2%5B%5D=48"  # Saturday Weekly Addresses
     "&items_per_page=100"
 )
 
