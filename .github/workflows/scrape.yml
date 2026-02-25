@@ -1,0 +1,49 @@
+name: Scrape Speeches
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_clean_and_format:
+        description: "Also run clean_and_format.py (requires ANTHROPIC_API_KEY)"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -e "."
+
+      - name: Scrape speeches
+        working-directory: backend
+        run: python scraper/scrape_speeches.py
+
+      - name: Clean and format
+        if: inputs.run_clean_and_format
+        working-directory: backend
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scraper/clean_and_format.py
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-central-1
+
+      - name: Upload to S3
+        working-directory: backend
+        run: python scraper/upload_to_s3.py

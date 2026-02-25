@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 
 export default defineConfig({
@@ -13,5 +14,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    root: ".",
+    environment: "jsdom",
+    include: ["src/__tests__/**/*.test.ts"],
   },
 });

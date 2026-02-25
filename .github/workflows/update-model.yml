@@ -1,0 +1,42 @@
+name: Update Model
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_data_url:
+        description: "S3 URI for model.tar.gz (auto-detect if empty)"
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -e "."
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-central-1
+
+      - name: Update endpoint
+        working-directory: backend
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.model_data_url }}" ]; then
+            ARGS="--model-data-url ${{ inputs.model_data_url }}"
+          fi
+          python scripts/update_endpoint.py $ARGS

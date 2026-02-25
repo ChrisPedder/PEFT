@@ -3,6 +3,7 @@ import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
 import { StorageStack } from "../lib/storage-stack";
 import { TrainingStack } from "../lib/training-stack";
+import { AuthStack } from "../lib/auth-stack";
 import { InferenceStack } from "../lib/inference-stack";
 import { FrontendStack } from "../lib/frontend-stack";
 
@@ -23,16 +24,22 @@ const trainingStack = new TrainingStack(app, "PeftTrainingStack", {
   modelBucket: storageStack.modelBucket,
 });
 
+// Auth (Cognito User Pool)
+const authStack = new AuthStack(app, "PeftAuthStack", { env });
+
 // Phase 4: Inference (SageMaker endpoint + Lambda proxy)
 const inferenceStack = new InferenceStack(app, "PeftInferenceStack", {
   env,
   modelBucket: storageStack.modelBucket,
+  cognitoUserPoolId: authStack.userPool.userPoolId,
 });
 
 // Phase 5: Frontend (CloudFront + S3)
 const frontendStack = new FrontendStack(app, "PeftFrontendStack", {
   env,
   lambdaFunctionUrl: inferenceStack.lambdaFunctionUrl,
+  cognitoUserPoolId: authStack.userPool.userPoolId,
+  cognitoClientId: authStack.userPoolClientId,
 });
 
 app.synth();

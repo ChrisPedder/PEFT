@@ -8,36 +8,84 @@
   </head>
   <body>
     <main id="app">
-      <header>
-        <h1>Ask Obama</h1>
-        <p class="subtitle">
-          An AI fine-tuned to answer questions in Barack Obama's speaking style
-        </p>
-      </header>
+      <!-- Login Section -->
+      <section id="login-section">
+        <header>
+          <h1>Ask Obama</h1>
+          <p class="subtitle">
+            An AI fine-tuned to answer questions in Barack Obama's speaking style
+          </p>
+        </header>
 
-      <div id="chat-container">
-        <div id="messages"></div>
-      </div>
+        <form id="login-form">
+          <input
+            type="email"
+            id="login-email"
+            placeholder="Email"
+            autocomplete="email"
+            required
+          />
+          <input
+            type="password"
+            id="login-password"
+            placeholder="Password"
+            autocomplete="current-password"
+            required
+          />
+          <button type="submit" id="login-btn">Sign In</button>
+        </form>
 
-      <form id="ask-form">
-        <input
-          type="text"
-          id="question-input"
-          placeholder="Ask a question about policy, leadership, or American values..."
-          autocomplete="off"
-          required
-        />
-        <button type="submit" id="submit-btn">Ask</button>
-      </form>
+        <form id="new-password-form" class="hidden">
+          <p class="form-hint">You must set a new password to continue.</p>
+          <input
+            type="password"
+            id="new-password-input"
+            placeholder="New password"
+            autocomplete="new-password"
+            required
+          />
+          <button type="submit" id="new-password-btn">Set Password</button>
+        </form>
 
-      <div id="status-bar" class="hidden"></div>
+        <div id="login-error" class="hidden"></div>
+      </section>
 
-      <footer>
-        <p>
-          Powered by Mistral-7B fine-tuned with QLoRA &middot;
-          <a href="https://github.com" target="_blank">Source</a>
-        </p>
-      </footer>
+      <!-- Chat Section -->
+      <section id="chat-section" class="hidden">
+        <header>
+          <div class="header-row">
+            <h1>Ask Obama</h1>
+            <button id="sign-out-btn" type="button">Sign Out</button>
+          </div>
+          <p class="subtitle">
+            An AI fine-tuned to answer questions in Barack Obama's speaking style
+          </p>
+        </header>
+
+        <div id="chat-container">
+          <div id="messages"></div>
+        </div>
+
+        <form id="ask-form">
+          <input
+            type="text"
+            id="question-input"
+            placeholder="Ask a question about policy, leadership, or American values..."
+            autocomplete="off"
+            required
+          />
+          <button type="submit" id="submit-btn">Ask</button>
+        </form>
+
+        <div id="status-bar" class="hidden"></div>
+
+        <footer>
+          <p>
+            Powered by Mistral-7B fine-tuned with QLoRA &middot;
+            <a href="https://github.com" target="_blank">Source</a>
+          </p>
+        </footer>
+      </section>
     </main>
 
     <script type="module" src="./app.ts"></script>
