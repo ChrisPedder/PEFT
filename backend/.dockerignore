@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+scraper/data/
+tests/
+*.egg-info/
+.pytest_cache/

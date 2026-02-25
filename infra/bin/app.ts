@@ -6,6 +6,7 @@ import { TrainingStack } from "../lib/training-stack";
 import { AuthStack } from "../lib/auth-stack";
 import { InferenceStack } from "../lib/inference-stack";
 import { FrontendStack } from "../lib/frontend-stack";
+import { ScraperBatchStack } from "../lib/scraper-batch-stack";
 
 const app = new cdk.App();
 
@@ -40,6 +41,13 @@ const frontendStack = new FrontendStack(app, "PeftFrontendStack", {
   lambdaFunctionUrl: inferenceStack.lambdaFunctionUrl,
   cognitoUserPoolId: authStack.userPool.userPoolId,
   cognitoClientId: authStack.userPoolClientId,
+});
+
+// Scraper pipeline (AWS Batch on Fargate)
+const scraperBatchStack = new ScraperBatchStack(app, "PeftScraperBatchStack", {
+  env,
+  dataBucket: storageStack.dataBucket,
+  trainingDataBucket: storageStack.trainingDataBucket,
 });
 
 app.synth();

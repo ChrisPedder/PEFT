@@ -1,6 +1,8 @@
 # PEFT — Obama Q&A Model
 
 ![CI](https://github.com/ChrisPedder/PEFT/actions/workflows/ci.yml/badge.svg)
+![Python Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ChrisPedder/49d94cddd838ec8907222f59be7398ac/raw/python-coverage.json)
+![Frontend Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ChrisPedder/49d94cddd838ec8907222f59be7398ac/raw/frontend-coverage.json)
 
 Fine-tuned Mistral-7B model that answers questions in Barack Obama's speaking style, using QLoRA (Parameter-Efficient Fine-Tuning).
 

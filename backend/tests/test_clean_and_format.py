@@ -1,26 +1,25 @@
 """Tests for backend/scraper/clean_and_format.py."""
 
 import json
-import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from botocore.exceptions import ClientError
 
 # Ensure the backend package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-# We must patch anthropic.Anthropic before importing the module,
+# We must patch boto3.client before importing the module,
 # because clean_and_format instantiates the client at module level.
-_mock_anthropic_client = MagicMock()
-with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-    with patch("anthropic.Anthropic", return_value=_mock_anthropic_client):
-        from backend.scraper.clean_and_format import (
-            clean_text,
-            generate_qa_pairs,
-            main,
-        )
+_mock_bedrock_client = MagicMock()
+with patch("boto3.client", return_value=_mock_bedrock_client):
+    from backend.scraper.clean_and_format import (
+        clean_text,
+        generate_qa_pairs,
+        main,
+    )
 
 
 class TestCleanText:
@@ -45,9 +44,14 @@ class TestCleanText:
         assert "Foo bar baz" in result
 
 
+def _bedrock_response(qa_json: str) -> dict:
+    """Build a Bedrock converse() response dict."""
+    return {"output": {"message": {"content": [{"text": qa_json}]}}}
+
+
 class TestGenerateQaPairs:
-    @patch("backend.scraper.clean_and_format.client")
-    def test_generate_qa_pairs_success(self, mock_client):
+    @patch("backend.scraper.clean_and_format.bedrock")
+    def test_generate_qa_pairs_success(self, mock_bedrock):
         """generate_qa_pairs parses valid JSON response into instruction/output pairs."""
         qa_json = json.dumps(
             [
@@ -61,9 +65,7 @@ class TestGenerateQaPairs:
                 },
             ]
         )
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text=qa_json)]
-        mock_client.messages.create.return_value = mock_response
+        mock_bedrock.converse.return_value = _bedrock_response(qa_json)
 
         speech = {
             "title": "Remarks on Economy",
@@ -78,13 +80,11 @@ class TestGenerateQaPairs:
         assert result[0]["input"] == ""
         assert result[1]["instruction"] == "What about healthcare?"
 
-    @patch("backend.scraper.clean_and_format.client")
-    def test_generate_qa_pairs_with_code_block(self, mock_client):
+    @patch("backend.scraper.clean_and_format.bedrock")
+    def test_generate_qa_pairs_with_code_block(self, mock_bedrock):
         """generate_qa_pairs handles JSON wrapped in markdown code blocks."""
         qa_json = '```json\n[{"instruction": "Q?", "output": "A."}]\n```'
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text=qa_json)]
-        mock_client.messages.create.return_value = mock_response
+        mock_bedrock.converse.return_value = _bedrock_response(qa_json)
 
         speech = {
             "title": "Speech",
@@ -97,15 +97,14 @@ class TestGenerateQaPairs:
         assert result[0]["instruction"] == "Q?"
         assert result[0]["output"] == "A."
 
-    @patch("backend.scraper.clean_and_format.client")
-    def test_generate_qa_pairs_api_error(self, mock_client):
-        """generate_qa_pairs returns empty list on API error."""
-        import anthropic
-
-        mock_client.messages.create.side_effect = anthropic.APIError(
-            message="Rate limited",
-            request=MagicMock(),
-            body=None,
+    @patch("backend.scraper.clean_and_format.bedrock")
+    def test_generate_qa_pairs_api_error(self, mock_bedrock):
+        """generate_qa_pairs returns empty list on Bedrock ClientError."""
+        mock_bedrock.converse.side_effect = ClientError(
+            error_response={
+                "Error": {"Code": "ThrottlingException", "Message": "Rate limited"}
+            },
+            operation_name="Converse",
         )
 
         speech = {
@@ -116,13 +115,11 @@ class TestGenerateQaPairs:
         result = generate_qa_pairs(speech)
         assert result == []
 
-    @patch("backend.scraper.clean_and_format.client")
-    def test_generate_qa_pairs_truncates_long_text(self, mock_client):
+    @patch("backend.scraper.clean_and_format.bedrock")
+    def test_generate_qa_pairs_truncates_long_text(self, mock_bedrock):
         """generate_qa_pairs truncates text longer than 6000 chars."""
         qa_json = json.dumps([{"instruction": "Q?", "output": "A."}])
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text=qa_json)]
-        mock_client.messages.create.return_value = mock_response
+        mock_bedrock.converse.return_value = _bedrock_response(qa_json)
 
         speech = {
             "title": "Long Speech",
@@ -132,15 +129,15 @@ class TestGenerateQaPairs:
         generate_qa_pairs(speech)
 
         # Verify the prompt sent to the API contains truncated text
-        call_args = mock_client.messages.create.call_args
+        call_args = mock_bedrock.converse.call_args
         messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
-        prompt_content = messages[0]["content"]
+        prompt_content = messages[0]["content"][0]["text"]
         assert "[truncated]" in prompt_content
 
 
 class TestMain:
-    @patch("backend.scraper.clean_and_format.client")
-    def test_main_success(self, mock_client, tmp_path):
+    @patch("backend.scraper.clean_and_format.bedrock")
+    def test_main_success(self, mock_bedrock, tmp_path):
         """main reads input, generates Q&A pairs, and writes output."""
         # Create input file
         input_file = tmp_path / "raw_speeches.jsonl"
@@ -164,14 +161,11 @@ class TestMain:
                 }
             ]
         )
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text=qa_json)]
-        mock_client.messages.create.return_value = mock_response
+        mock_bedrock.converse.return_value = _bedrock_response(qa_json)
 
         with (
             patch("backend.scraper.clean_and_format.INPUT_FILE", input_file),
             patch("backend.scraper.clean_and_format.OUTPUT_FILE", output_file),
-            patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
         ):
             main()
 
@@ -187,20 +181,6 @@ class TestMain:
 
         with (
             patch("backend.scraper.clean_and_format.INPUT_FILE", missing_file),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            main()
-
-        assert exc_info.value.code == 1
-
-    def test_main_missing_api_key(self, tmp_path):
-        """main exits with code 1 when ANTHROPIC_API_KEY is not set."""
-        input_file = tmp_path / "raw_speeches.jsonl"
-        input_file.write_text('{"title":"t","text":"t"}\n')
-
-        with (
-            patch("backend.scraper.clean_and_format.INPUT_FILE", input_file),
-            patch.dict(os.environ, {}, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             main()

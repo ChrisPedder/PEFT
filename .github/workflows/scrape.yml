@@ -15,67 +15,92 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    outputs:
+      scrape_status: ${{ steps.poll.outputs.status }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install dependencies
-        working-directory: backend
-        run: pip install -e "."
-
-      - name: Scrape speeches
-        working-directory: backend
-        run: python scraper/scrape_speeches.py
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: eu-central-1
 
-      - name: Upload raw speeches to S3
-        working-directory: backend
-        run: python scraper/upload_to_s3.py
+      - name: Submit scrape job
+        id: submit
+        run: |
+          JOB_ID=$(aws batch submit-job \
+            --job-name "scrape-speeches-$(date +%Y%m%d-%H%M%S)" \
+            --job-queue peft-scraper-job-queue \
+            --job-definition peft-scrape-speeches \
+            --query 'jobId' --output text)
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+          echo "Submitted Batch job: $JOB_ID"
+
+      - name: Poll until complete
+        id: poll
+        run: |
+          JOB_ID="${{ steps.submit.outputs.job_id }}"
+          while true; do
+            STATUS=$(aws batch describe-jobs --jobs "$JOB_ID" \
+              --query 'jobs[0].status' --output text)
+            echo "$(date +%H:%M:%S) Job $JOB_ID status: $STATUS"
+            case "$STATUS" in
+              SUCCEEDED)
+                echo "status=SUCCEEDED" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+              FAILED)
+                echo "status=FAILED" >> "$GITHUB_OUTPUT"
+                REASON=$(aws batch describe-jobs --jobs "$JOB_ID" \
+                  --query 'jobs[0].statusReason' --output text)
+                echo "Job failed: $REASON"
+                exit 1
+                ;;
+            esac
+            sleep 30
+          done
 
   process:
     needs: scrape
     if: inputs.run_clean_and_format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install dependencies
-        working-directory: backend
-        run: pip install -e "."
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: eu-central-1
 
-      - name: Download raw speeches from S3
-        working-directory: backend
+      - name: Submit process job
+        id: submit
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          mkdir -p scraper/data
-          aws s3 cp "s3://peft-speech-data-${ACCOUNT_ID}/raw/speeches.jsonl" scraper/data/raw_speeches.jsonl
+          JOB_ID=$(aws batch submit-job \
+            --job-name "process-speeches-$(date +%Y%m%d-%H%M%S)" \
+            --job-queue peft-scraper-job-queue \
+            --job-definition peft-process-speeches \
+            --query 'jobId' --output text)
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+          echo "Submitted Batch job: $JOB_ID"
 
-      - name: Clean and format
-        working-directory: backend
-        run: python scraper/clean_and_format.py
-
-      - name: Upload training data to S3
-        working-directory: backend
+      - name: Poll until complete
+        id: poll
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          aws s3 cp scraper/data/training_data.jsonl "s3://peft-training-data-${ACCOUNT_ID}/training_data.jsonl"
+          JOB_ID="${{ steps.submit.outputs.job_id }}"
+          while true; do
+            STATUS=$(aws batch describe-jobs --jobs "$JOB_ID" \
+              --query 'jobs[0].status' --output text)
+            echo "$(date +%H:%M:%S) Job $JOB_ID status: $STATUS"
+            case "$STATUS" in
+              SUCCEEDED)
+                echo "status=SUCCEEDED" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+              FAILED)
+                echo "status=FAILED" >> "$GITHUB_OUTPUT"
+                REASON=$(aws batch describe-jobs --jobs "$JOB_ID" \
+                  --query 'jobs[0].statusReason' --output text)
+                echo "Job failed: $REASON"
+                exit 1
+                ;;
+            esac
+            sleep 30
+          done

@@ -1,25 +1,27 @@
 """
-Clean raw speeches and generate synthetic Q&A training pairs using Claude API.
+Clean raw speeches and generate synthetic Q&A training pairs using AWS Bedrock.
 
 Input:  backend/scraper/data/raw_speeches.jsonl
 Output: backend/scraper/data/training_data.jsonl
 """
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
-import anthropic
+import boto3
+from botocore.exceptions import ClientError
 from tqdm import tqdm
 
 DATA_DIR = Path(__file__).parent / "data"
 INPUT_FILE = DATA_DIR / "raw_speeches.jsonl"
 OUTPUT_FILE = DATA_DIR / "training_data.jsonl"
 
-# Claude API client
-client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
+BEDROCK_MODEL_ID = "anthropic.claude-sonnet-4-20250514-v1:0"
+
+# AWS Bedrock client (uses AWS credentials from environment / instance profile)
+bedrock = boto3.client("bedrock-runtime")
 
 SYSTEM_PROMPT = """\
 You are a data-preparation assistant. Given a speech by Barack Obama, generate \
@@ -63,7 +65,7 @@ def clean_text(text: str) -> str:
 
 
 def generate_qa_pairs(speech: dict) -> list[dict]:
-    """Use Claude to generate Q&A pairs from a speech."""
+    """Use AWS Bedrock to generate Q&A pairs from a speech."""
     text = speech["text"]
     # Truncate to ~6000 chars to stay within reasonable token limits
     if len(text) > 6000:
@@ -76,14 +78,14 @@ def generate_qa_pairs(speech: dict) -> list[dict]:
     )
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
+        response = bedrock.converse(
+            modelId=BEDROCK_MODEL_ID,
+            system=[{"text": SYSTEM_PROMPT}],
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 2000},
         )
 
-        content = response.content[0].text.strip()
+        content = response["output"]["message"]["content"][0]["text"].strip()
 
         # Extract JSON array from response
         # Handle cases where Claude wraps in markdown code blocks
@@ -108,7 +110,7 @@ def generate_qa_pairs(speech: dict) -> list[dict]:
                 )
         return valid_pairs
 
-    except (json.JSONDecodeError, anthropic.APIError) as e:
+    except (json.JSONDecodeError, ClientError) as e:
         print(f"  [WARN] Failed to generate Q&A for '{speech.get('title')}': {e}")
         return []
 
@@ -117,10 +119,6 @@ def main() -> None:
     if not INPUT_FILE.exists():
         print(f"Input file not found: {INPUT_FILE}")
         print("Run scrape_speeches.py first.")
-        sys.exit(1)
-
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("ANTHROPIC_API_KEY environment variable not set.")
         sys.exit(1)
 
     # Load raw speeches
