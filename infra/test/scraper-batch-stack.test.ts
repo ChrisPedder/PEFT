@@ -73,4 +73,16 @@ describe("ScraperBatchStack", () => {
   test("has CfnOutput for ProcessJobDefinitionArn", () => {
     template.hasOutput("ProcessJobDefinitionArn", {});
   });
+
+  test("process container has DATA_BUCKET and TRAINING_DATA_BUCKET env vars", () => {
+    template.hasResourceProperties("AWS::Batch::JobDefinition", {
+      JobDefinitionName: "peft-process-speeches",
+      ContainerProperties: {
+        Environment: Match.arrayWith([
+          Match.objectLike({ Name: "DATA_BUCKET" }),
+          Match.objectLike({ Name: "TRAINING_DATA_BUCKET" }),
+        ]),
+      },
+    });
+  });
 });

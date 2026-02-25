@@ -139,15 +139,17 @@ export class ScraperBatchStack extends cdk.Stack {
           executionRole,
           jobRole: taskRole,
           assignPublicIp: true,
+          environment: {
+            DATA_BUCKET: props.dataBucket.bucketName,
+            TRAINING_DATA_BUCKET: props.trainingDataBucket.bucketName,
+          },
           command: [
             "sh",
             "-c",
             [
-              'ACCOUNT_ID=$(python -c "import boto3; print(boto3.client(\'sts\').get_caller_identity()[\'Account\'])")',
-              "mkdir -p scraper/data",
-              'aws s3 cp "s3://peft-speech-data-${ACCOUNT_ID}/raw/speeches.jsonl" scraper/data/raw_speeches.jsonl',
+              "aws s3 cp s3://$DATA_BUCKET/raw/speeches.jsonl scraper/data/raw_speeches.jsonl",
               "python -m scraper.clean_and_format",
-              'aws s3 cp scraper/data/training_data.jsonl "s3://peft-training-data-${ACCOUNT_ID}/training_data.jsonl"',
+              "aws s3 cp scraper/data/training_data.jsonl s3://$TRAINING_DATA_BUCKET/training_data.jsonl",
             ].join(" && "),
           ],
         }
