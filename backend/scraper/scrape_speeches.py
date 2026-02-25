@@ -51,7 +51,7 @@ APP_BASE = "https://www.presidency.ucsb.edu"
 APP_SEARCH = (
     f"{APP_BASE}/advanced-search"
     "?field-keywords=&field-keywords2=&field-keywords3="
-    "&from%5Bdate%5D=2009-01-20&to%5Bdate%5D=2017-01-20"
+    "&from%5Bdate%5D=01-20-2009&to%5Bdate%5D=01-20-2017"
     "&person2=200300"  # Barack Obama
     "&items_per_page=100"
 )
@@ -69,19 +69,22 @@ def scrape_app_index() -> list[dict]:
         if soup is None:
             break
 
-        rows = soup.select("div.view-content .views-row")
+        rows = soup.select("table.views-table tbody tr")
         if not rows:
             break
 
         for row in rows:
-            link_el = row.select_one("a")
-            date_el = row.select_one(".date-display-single")
+            cells = row.select("td")
+            if len(cells) < 3:
+                continue
+            date_text = cells[0].get_text(strip=True)
+            link_el = cells[2].select_one("a")
             if link_el and link_el.get("href"):
                 urls.append(
                     {
                         "url": urljoin(APP_BASE, link_el["href"]),
                         "title": link_el.get_text(strip=True),
-                        "date": date_el.get_text(strip=True) if date_el else "",
+                        "date": date_text,
                         "source": "app",
                     }
                 )

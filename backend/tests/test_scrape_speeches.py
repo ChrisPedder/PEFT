@@ -56,23 +56,27 @@ def test_fetch_page_failure():
 @patch("backend.scraper.scrape_speeches.time.sleep")
 def test_scrape_app_index(mock_sleep):
     """scrape_app_index extracts speech URLs from the APP index page."""
-    # Page 0 with results
+    # Page 0 with results (table-based layout)
     page0_html = """
     <html><body>
-    <div class="view-content">
-      <div class="views-row">
-        <a href="/documents/inaugural-address">Inaugural Address</a>
-        <span class="date-display-single">January 20, 2009</span>
-      </div>
-      <div class="views-row">
-        <a href="/documents/remarks-on-economy">Remarks on Economy</a>
-        <span class="date-display-single">February 4, 2009</span>
-      </div>
-    </div>
+    <table class="views-table sticky-enabled cols-3 table table-striped">
+      <tbody>
+        <tr>
+          <td>January 20, 2009</td>
+          <td><a href="/people/president/barack-obama">Barack Obama</a></td>
+          <td><a href="/documents/inaugural-address">Inaugural Address</a></td>
+        </tr>
+        <tr>
+          <td>February 4, 2009</td>
+          <td><a href="/people/president/barack-obama">Barack Obama</a></td>
+          <td><a href="/documents/remarks-on-economy">Remarks on Economy</a></td>
+        </tr>
+      </tbody>
+    </table>
     </body></html>
     """
     # Page 1 with no results (stops pagination)
-    page1_html = "<html><body><div class='view-content'></div></body></html>"
+    page1_html = "<html><body><table class='views-table'></table></body></html>"
 
     responses.add(
         responses.GET,
