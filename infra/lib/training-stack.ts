@@ -7,6 +7,8 @@ import { Construct } from "constructs";
 interface TrainingStackProps extends cdk.StackProps {
   trainingDataBucket: s3.IBucket;
   modelBucket: s3.IBucket;
+  /** @deprecated Kept temporarily to avoid breaking the CloudFormation cross-stack export. Remove after one deploy. */
+  dataBucket?: s3.IBucket;
 }
 
 /**
@@ -70,5 +72,14 @@ export class TrainingStack extends cdk.Stack {
     new cdk.CfnOutput(this, "TrainingRoleArn", {
       value: this.trainingRole.roleArn,
     });
+
+    // Temporary: keep cross-stack reference alive so CloudFormation can
+    // migrate the import in one deploy.  Remove after the next deploy.
+    if (props.dataBucket) {
+      new cdk.CfnOutput(this, "DeprecatedDataBucketRef", {
+        value: props.dataBucket.bucketArn,
+        description: "Temporary — remove after one successful deploy",
+      });
+    }
   }
 }
