@@ -1,5 +1,5 @@
 """
-Upload processed training data to S3.
+Upload raw scraped speeches to S3.
 
 Usage:
     python upload_to_s3.py [--bucket BUCKET_NAME]
@@ -14,7 +14,7 @@ DATA_DIR = Path(__file__).parent / "data"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Upload training data to S3")
+    parser = argparse.ArgumentParser(description="Upload raw speeches to S3")
     parser.add_argument(
         "--bucket",
         default=None,
@@ -32,7 +32,6 @@ def main() -> None:
 
     files_to_upload = [
         ("raw_speeches.jsonl", "raw/speeches.jsonl"),
-        ("training_data.jsonl", "processed/training_data.jsonl"),
     ]
 
     for local_name, s3_key in files_to_upload:

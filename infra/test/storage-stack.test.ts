@@ -11,8 +11,8 @@ describe("StorageStack", () => {
     template = Template.fromStack(stack);
   });
 
-  test("creates three S3 buckets", () => {
-    template.resourceCountIs("AWS::S3::Bucket", 3);
+  test("creates four S3 buckets", () => {
+    template.resourceCountIs("AWS::S3::Bucket", 4);
   });
 
   test("creates IAM role with SageMaker service principal", () => {
@@ -34,6 +34,7 @@ describe("StorageStack", () => {
 
   test("has expected CfnOutputs", () => {
     template.hasOutput("DataBucketName", {});
+    template.hasOutput("TrainingDataBucketName", {});
     template.hasOutput("ModelBucketName", {});
     template.hasOutput("FrontendBucketName", {});
     template.hasOutput("SageMakerRoleArn", {});

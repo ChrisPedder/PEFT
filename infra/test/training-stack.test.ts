@@ -10,7 +10,7 @@ describe("TrainingStack", () => {
     const app = new cdk.App();
     const storageStack = new StorageStack(app, "TestStorage");
     const stack = new TrainingStack(app, "TestTraining", {
-      dataBucket: storageStack.dataBucket,
+      trainingDataBucket: storageStack.trainingDataBucket,
       modelBucket: storageStack.modelBucket,
     });
     template = Template.fromStack(stack);

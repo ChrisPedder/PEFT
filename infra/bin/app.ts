@@ -20,7 +20,7 @@ const storageStack = new StorageStack(app, "PeftStorageStack", { env });
 // Phase 3: Training resources
 const trainingStack = new TrainingStack(app, "PeftTrainingStack", {
   env,
-  dataBucket: storageStack.dataBucket,
+  trainingDataBucket: storageStack.trainingDataBucket,
   modelBucket: storageStack.modelBucket,
 });
 

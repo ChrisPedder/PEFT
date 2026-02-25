@@ -5,15 +5,32 @@ import { Construct } from "constructs";
 
 export class StorageStack extends cdk.Stack {
   public readonly dataBucket: s3.Bucket;
+  public readonly trainingDataBucket: s3.Bucket;
   public readonly modelBucket: s3.Bucket;
   public readonly frontendBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Raw + processed training data
+    // Raw scraped speeches
     this.dataBucket = new s3.Bucket(this, "SpeechDataBucket", {
       bucketName: `peft-speech-data-${cdk.Aws.ACCOUNT_ID}`,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      versioned: false,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      lifecycleRules: [
+        {
+          id: "CleanupIncompleteUploads",
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(7),
+        },
+      ],
+    });
+
+    // Processed training data (clean_and_format output)
+    this.trainingDataBucket = new s3.Bucket(this, "TrainingDataBucket", {
+      bucketName: `peft-training-data-${cdk.Aws.ACCOUNT_ID}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       versioned: false,
@@ -56,11 +73,15 @@ export class StorageStack extends cdk.Stack {
     });
 
     this.dataBucket.grantReadWrite(sagemakerRole);
+    this.trainingDataBucket.grantReadWrite(sagemakerRole);
     this.modelBucket.grantReadWrite(sagemakerRole);
 
     // Outputs
     new cdk.CfnOutput(this, "DataBucketName", {
       value: this.dataBucket.bucketName,
+    });
+    new cdk.CfnOutput(this, "TrainingDataBucketName", {
+      value: this.trainingDataBucket.bucketName,
     });
     new cdk.CfnOutput(this, "ModelBucketName", {
       value: this.modelBucket.bucketName,

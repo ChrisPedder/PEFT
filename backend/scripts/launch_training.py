@@ -214,7 +214,7 @@ def main() -> None:
 
     # Build resource identifiers
     role_arn = f"arn:aws:iam::{account_id}:role/PeftTrainingRole"
-    data_uri = f"s3://peft-speech-data-{account_id}/processed/"
+    data_uri = f"s3://peft-training-data-{account_id}/"
     output_uri = f"s3://peft-model-artifacts-{account_id}/"
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     job_name = f"peft-obama-{timestamp}"

@@ -23,7 +23,6 @@ def test_upload_with_explicit_bucket(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     (data_dir / "raw_speeches.jsonl").write_text('{"title":"test"}\n')
-    (data_dir / "training_data.jsonl").write_text('{"instruction":"q"}\n')
 
     with (
         patch("sys.argv", ["upload_to_s3.py", "--bucket", "my-custom-bucket"]),
@@ -37,7 +36,6 @@ def test_upload_with_explicit_bucket(tmp_path):
     objs = s3.list_objects_v2(Bucket="my-custom-bucket")
     keys = [o["Key"] for o in objs["Contents"]]
     assert "raw/speeches.jsonl" in keys
-    assert "processed/training_data.jsonl" in keys
 
 
 @mock_aws
@@ -54,7 +52,6 @@ def test_upload_auto_bucket(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     (data_dir / "raw_speeches.jsonl").write_text('{"title":"test"}\n')
-    (data_dir / "training_data.jsonl").write_text('{"instruction":"q"}\n')
 
     with (
         patch("sys.argv", ["upload_to_s3.py"]),
@@ -67,7 +64,6 @@ def test_upload_auto_bucket(tmp_path):
     objs = s3.list_objects_v2(Bucket=bucket_name)
     keys = [o["Key"] for o in objs["Contents"]]
     assert "raw/speeches.jsonl" in keys
-    assert "processed/training_data.jsonl" in keys
 
 
 @mock_aws
@@ -93,4 +89,3 @@ def test_upload_skips_missing_files(tmp_path):
     objs = s3.list_objects_v2(Bucket="my-bucket")
     keys = [o["Key"] for o in objs["Contents"]]
     assert "raw/speeches.jsonl" in keys
-    assert "processed/training_data.jsonl" not in keys

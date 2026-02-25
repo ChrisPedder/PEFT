@@ -5,7 +5,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 
 interface TrainingStackProps extends cdk.StackProps {
-  dataBucket: s3.IBucket;
+  trainingDataBucket: s3.IBucket;
   modelBucket: s3.IBucket;
 }
 
@@ -29,8 +29,8 @@ export class TrainingStack extends cdk.Stack {
       ],
     });
 
-    // Grant access to data and model buckets
-    props.dataBucket.grantRead(this.trainingRole);
+    // Grant access to training data and model buckets
+    props.trainingDataBucket.grantRead(this.trainingRole);
     props.modelBucket.grantReadWrite(this.trainingRole);
 
     // Allow pulling HuggingFace containers from ECR

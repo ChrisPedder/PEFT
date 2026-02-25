@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       run_clean_and_format:
-        description: "Also run clean_and_format.py (requires ANTHROPIC_API_KEY)"
+        description: "Also run clean_and_format.py"
         type: boolean
         default: false
 
@@ -31,12 +31,31 @@ jobs:
         working-directory: backend
         run: python scraper/scrape_speeches.py
 
-      - name: Clean and format
-        if: inputs.run_clean_and_format
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-central-1
+
+      - name: Upload raw speeches to S3
         working-directory: backend
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python scraper/clean_and_format.py
+        run: python scraper/upload_to_s3.py
+
+  process:
+    needs: scrape
+    if: inputs.run_clean_and_format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -e "."
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -44,6 +63,19 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: eu-central-1
 
-      - name: Upload to S3
+      - name: Download raw speeches from S3
         working-directory: backend
-        run: python scraper/upload_to_s3.py
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          mkdir -p scraper/data
+          aws s3 cp "s3://peft-speech-data-${ACCOUNT_ID}/raw/speeches.jsonl" scraper/data/raw_speeches.jsonl
+
+      - name: Clean and format
+        working-directory: backend
+        run: python scraper/clean_and_format.py
+
+      - name: Upload training data to S3
+        working-directory: backend
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws s3 cp scraper/data/training_data.jsonl "s3://peft-training-data-${ACCOUNT_ID}/training_data.jsonl"

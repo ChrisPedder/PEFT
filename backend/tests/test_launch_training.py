@@ -50,7 +50,7 @@ def aws_setup():
 
         # Create S3 bucket for training data
         s3 = boto3.client("s3", region_name=region)
-        s3.create_bucket(Bucket="peft-speech-data-123456789012")
+        s3.create_bucket(Bucket="peft-training-data-123456789012")
 
         # Create IAM role for SageMaker
         iam = boto3.client("iam", region_name=region)
@@ -111,7 +111,7 @@ class TestLaunchTraining:
                     "DataSource": {
                         "S3DataSource": {
                             "S3DataType": "S3Prefix",
-                            "S3Uri": "s3://peft-speech-data-123456789012/processed/",
+                            "S3Uri": "s3://peft-training-data-123456789012/",
                         }
                     },
                 }
