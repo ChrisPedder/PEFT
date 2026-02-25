@@ -20,7 +20,7 @@ export default defineConfig({
     environment: "jsdom",
     include: ["src/__tests__/**/*.test.ts"],
     coverage: {
-      reporter: ["text", "html", "clover", "json-summary"],
+      reporter: ["text", "html", "clover"],
     },
   },
 });
