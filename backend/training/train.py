@@ -28,18 +28,13 @@ if _requirements.exists() and os.environ.get("SM_MODEL_DIR"):
     )
 
 import torch
-from datasets import Dataset
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-    TrainingArguments,
-)
 
 # Patch accelerate's dispatch_model to handle quantized models that don't support .to().
 # Older accelerate versions (<1.0) call model.to(device) which fails on BnB 4-bit models.
+# MUST be done BEFORE importing transformers/peft/trl, which cache a direct reference to
+# dispatch_model during their module-level imports.
 try:
+    import accelerate
     import accelerate.big_modeling as _abm
 
     _original_dispatch = _abm.dispatch_model
@@ -53,8 +48,22 @@ try:
             raise
 
     _abm.dispatch_model = _safe_dispatch
+    # Also patch the re-exported name in accelerate's top-level namespace,
+    # since transformers may import from either location.
+    if hasattr(accelerate, "dispatch_model"):
+        accelerate.dispatch_model = _safe_dispatch
+    print(f"accelerate {accelerate.__version__}: dispatch_model patched")
 except ImportError:
     pass
+
+from datasets import Dataset
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    TrainingArguments,
+)
 from trl import SFTTrainer
 
 # ---------------------------------------------------------------------------
