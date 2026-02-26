@@ -62,9 +62,8 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    TrainingArguments,
 )
-from trl import SFTTrainer
+from trl import SFTConfig, SFTTrainer
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -180,8 +179,8 @@ def main() -> None:
     # Load dataset
     dataset = load_dataset(data_path)
 
-    # Training arguments
-    training_args = TrainingArguments(
+    # Training config (SFTConfig extends TrainingArguments with SFT-specific fields)
+    sft_config = SFTConfig(
         output_dir=output_dir,
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
@@ -197,6 +196,9 @@ def main() -> None:
         report_to="none",
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
+        max_seq_length=MAX_SEQ_LENGTH,
+        dataset_text_field="text",
+        packing=True,
     )
 
     # Trainer
@@ -204,10 +206,7 @@ def main() -> None:
         model=model,
         train_dataset=dataset,
         tokenizer=tokenizer,
-        args=training_args,
-        max_seq_length=MAX_SEQ_LENGTH,
-        dataset_text_field="text",
-        packing=True,
+        args=sft_config,
     )
 
     print("Starting training...")
