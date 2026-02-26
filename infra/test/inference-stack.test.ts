@@ -16,18 +16,20 @@ describe("InferenceStack", () => {
     template = Template.fromStack(stack);
   });
 
-  test("creates SageMaker endpoint config with correct instance type", () => {
-    template.hasResourceProperties("AWS::SageMaker::EndpointConfig", {
-      ProductionVariants: [
-        Match.objectLike({
-          InstanceType: "ml.g5.xlarge",
-        }),
-      ],
+  test("creates Bedrock import role with bedrock.amazonaws.com principal", () => {
+    template.hasResourceProperties("AWS::IAM::Role", {
+      RoleName: "PeftBedrockImportRole",
+      AssumeRolePolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Principal: {
+              Service: "bedrock.amazonaws.com",
+            },
+            Effect: "Allow",
+          }),
+        ]),
+      },
     });
-  });
-
-  test("creates SageMaker endpoint", () => {
-    template.resourceCountIs("AWS::SageMaker::Endpoint", 1);
   });
 
   test("creates Lambda function with correct memory and timeout", () => {
@@ -37,14 +39,14 @@ describe("InferenceStack", () => {
     });
   });
 
-  test("Lambda has SageMaker invoke permissions", () => {
+  test("Lambda has Bedrock invoke permissions", () => {
     template.hasResourceProperties("AWS::IAM::Policy", {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
             Action: [
-              "sagemaker:InvokeEndpoint",
-              "sagemaker:InvokeEndpointWithResponseStream",
+              "bedrock:InvokeModel",
+              "bedrock:InvokeModelWithResponseStream",
             ],
             Effect: "Allow",
           }),
@@ -53,18 +55,8 @@ describe("InferenceStack", () => {
     });
   });
 
-  test("has scaling target with min=0, max=1", () => {
-    template.hasResourceProperties(
-      "AWS::ApplicationAutoScaling::ScalableTarget",
-      {
-        MinCapacity: 0,
-        MaxCapacity: 1,
-      }
-    );
-  });
-
-  test("has CfnOutputs for EndpointName and LambdaFunctionUrl", () => {
-    template.hasOutput("EndpointName", {});
+  test("has CfnOutputs for BedrockImportRoleArn and LambdaFunctionUrl", () => {
+    template.hasOutput("BedrockImportRoleArn", {});
     template.hasOutput("LambdaFunctionUrl", {});
   });
 });

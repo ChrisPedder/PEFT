@@ -129,6 +129,9 @@ class TestWriteModelArn:
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["job_id"] == "bedrock-import-peft-obama"
         assert item["status"] == "Completed"
-        assert item["bedrock_model_arn"] == "arn:aws:bedrock:eu-central-1:123:imported-model/peft-obama"
+        assert (
+            item["bedrock_model_arn"]
+            == "arn:aws:bedrock:eu-central-1:123:imported-model/peft-obama"
+        )
         assert item["model_name"] == "peft-obama"
         assert "timestamp" in item

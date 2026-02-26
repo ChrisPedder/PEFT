@@ -142,15 +142,25 @@ async def test_ask_converse_stream_params(mock_bedrock):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         with patch("backend.inference.app.bedrock_runtime", mock_bedrock):
-            with patch("backend.inference.app.MODEL_ID", "arn:aws:bedrock:eu-central-1:123:imported-model/peft-obama"):
+            with patch(
+                "backend.inference.app.MODEL_ID",
+                "arn:aws:bedrock:eu-central-1:123:imported-model/peft-obama",
+            ):
                 response = await client.post(
                     "/api/ask",
-                    json={"question": "Tell me about healthcare", "max_tokens": 256, "temperature": 0.5},
+                    json={
+                        "question": "Tell me about healthcare",
+                        "max_tokens": 256,
+                        "temperature": 0.5,
+                    },
                 )
 
     assert response.status_code == 200
     call_kwargs = mock_bedrock.converse_stream.call_args[1]
-    assert call_kwargs["modelId"] == "arn:aws:bedrock:eu-central-1:123:imported-model/peft-obama"
+    assert (
+        call_kwargs["modelId"]
+        == "arn:aws:bedrock:eu-central-1:123:imported-model/peft-obama"
+    )
     assert call_kwargs["messages"] == [
         {"role": "user", "content": [{"text": "Tell me about healthcare"}]}
     ]
@@ -180,9 +190,7 @@ async def test_ask_throttling_error(mock_bedrock):
 @pytest.mark.asyncio
 async def test_ask_generic_error(mock_bedrock):
     """POST /api/ask returns 500 on an unexpected exception."""
-    mock_bedrock.converse_stream.side_effect = Exception(
-        "Something totally unexpected"
-    )
+    mock_bedrock.converse_stream.side_effect = Exception("Something totally unexpected")
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

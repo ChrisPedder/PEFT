@@ -109,7 +109,9 @@ class TestMergeWithoutUpload:
             mock_base, str(adapter_dir)
         )
         mock_peft.merge_and_unload.assert_called_once()
-        mock_merged.save_pretrained.assert_called_once_with(str(merged_dir), safe_serialization=True)
+        mock_merged.save_pretrained.assert_called_once_with(
+            str(merged_dir), safe_serialization=True
+        )
         mock_AutoTokenizer_local.from_pretrained.assert_called_once_with(
             str(adapter_dir)
         )
