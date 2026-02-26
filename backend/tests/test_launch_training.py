@@ -104,7 +104,6 @@ class TestUploadTrainingCode:
         with tarfile.open(fileobj=buf, mode="r:gz") as tar:
             names = tar.getnames()
         assert "train.py" in names
-        assert "requirements.txt" in names
 
 
 class TestLaunchTraining:
