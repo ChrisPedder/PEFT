@@ -1,4 +1,4 @@
-"""Tests for backend/inference/app.py — FastAPI endpoints."""
+"""Tests for backend/inference/app.py — FastAPI endpoints with Bedrock."""
 
 import json
 import sys
@@ -14,9 +14,9 @@ from jose import jwt as jose_jwt
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 # Patch the boto3 client before importing app, since it's created at module level
-_mock_sagemaker_runtime = MagicMock()
+_mock_bedrock_runtime = MagicMock()
 
-with patch("boto3.client", return_value=_mock_sagemaker_runtime):
+with patch("boto3.client", return_value=_mock_bedrock_runtime):
     from backend.inference.app import app, get_current_user, _get_jwks
 
 
@@ -33,16 +33,16 @@ def override_auth():
 
 
 @pytest.fixture
-def mock_sagemaker():
-    """Reset and yield the mock sagemaker runtime client."""
-    _mock_sagemaker_runtime.reset_mock(side_effect=True, return_value=True)
+def mock_bedrock():
+    """Reset and yield the mock bedrock runtime client."""
+    _mock_bedrock_runtime.reset_mock(side_effect=True, return_value=True)
     # Provide a mock exceptions attribute
-    _mock_sagemaker_runtime.exceptions = MagicMock()
-    _mock_sagemaker_runtime.exceptions.ModelNotReadyException = type(
-        "ModelNotReadyException", (Exception,), {}
+    _mock_bedrock_runtime.exceptions = MagicMock()
+    _mock_bedrock_runtime.exceptions.ThrottlingException = type(
+        "ThrottlingException", (Exception,), {}
     )
     with patch.object(app, "state", create=True):
-        yield _mock_sagemaker_runtime
+        yield _mock_bedrock_runtime
 
 
 @pytest.mark.asyncio
@@ -55,7 +55,7 @@ async def test_health_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
-    assert "endpoint" in data
+    assert "model_id" in data
 
 
 @pytest.mark.asyncio
@@ -100,22 +100,23 @@ async def test_ask_returns_401_with_invalid_token():
 
 
 @pytest.mark.asyncio
-async def test_ask_success(mock_sagemaker):
-    """POST /api/ask streams SSE tokens from SageMaker."""
-    # Build a mock streaming response in TGI format
-    tgi_data = 'data: {"token": {"text": "Hello"}}\ndata: {"token": {"text": " world"}}\ndata: [DONE]\n'
-    mock_payload_part = {"PayloadPart": {"Bytes": tgi_data.encode("utf-8")}}
+async def test_ask_success(mock_bedrock):
+    """POST /api/ask streams SSE tokens from Bedrock converse_stream."""
+    # Build a mock Bedrock converse_stream response
+    mock_events = [
+        {"contentBlockDelta": {"delta": {"text": "Hello"}}},
+        {"contentBlockDelta": {"delta": {"text": " world"}}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
 
-    mock_body = MagicMock()
-    mock_body.__iter__ = MagicMock(return_value=iter([mock_payload_part]))
-
-    mock_sagemaker.invoke_endpoint_with_response_stream.return_value = {
-        "Body": mock_body,
+    mock_bedrock.converse_stream.return_value = {
+        "stream": iter(mock_events),
     }
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        with patch("backend.inference.app.sagemaker_runtime", mock_sagemaker):
+        with patch("backend.inference.app.bedrock_runtime", mock_bedrock):
             response = await client.post(
                 "/api/ask",
                 json={"question": "What is your policy on education?"},
@@ -132,61 +133,95 @@ async def test_ask_success(mock_sagemaker):
 
 
 @pytest.mark.asyncio
-async def test_ask_model_not_ready(mock_sagemaker):
-    """POST /api/ask returns 503 when ModelNotReadyException is raised."""
-    ModelNotReadyException = mock_sagemaker.exceptions.ModelNotReadyException
-    mock_sagemaker.invoke_endpoint_with_response_stream.side_effect = (
-        ModelNotReadyException("Model not ready")
-    )
+async def test_ask_converse_stream_params(mock_bedrock):
+    """POST /api/ask calls converse_stream with correct model ID and message format."""
+    mock_bedrock.converse_stream.return_value = {
+        "stream": iter([{"messageStop": {"stopReason": "end_turn"}}]),
+    }
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        with patch("backend.inference.app.sagemaker_runtime", mock_sagemaker):
+        with patch("backend.inference.app.bedrock_runtime", mock_bedrock):
+            with patch("backend.inference.app.MODEL_ID", "arn:aws:bedrock:eu-central-1:123:imported-model/peft-obama"):
+                response = await client.post(
+                    "/api/ask",
+                    json={"question": "Tell me about healthcare", "max_tokens": 256, "temperature": 0.5},
+                )
+
+    assert response.status_code == 200
+    call_kwargs = mock_bedrock.converse_stream.call_args[1]
+    assert call_kwargs["modelId"] == "arn:aws:bedrock:eu-central-1:123:imported-model/peft-obama"
+    assert call_kwargs["messages"] == [
+        {"role": "user", "content": [{"text": "Tell me about healthcare"}]}
+    ]
+    assert call_kwargs["inferenceConfig"]["maxTokens"] == 256
+    assert call_kwargs["inferenceConfig"]["temperature"] == 0.5
+    assert call_kwargs["inferenceConfig"]["topP"] == 0.9
+
+
+@pytest.mark.asyncio
+async def test_ask_throttling_error(mock_bedrock):
+    """POST /api/ask returns 429 when Bedrock throttles the request."""
+    ThrottlingException = mock_bedrock.exceptions.ThrottlingException
+    mock_bedrock.converse_stream.side_effect = ThrottlingException("Rate exceeded")
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("backend.inference.app.bedrock_runtime", mock_bedrock):
             response = await client.post(
                 "/api/ask",
                 json={"question": "test question"},
             )
 
-    assert response.status_code == 503
-    assert "warming up" in response.json()["detail"].lower()
+    assert response.status_code == 429
+    assert "throttled" in response.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
-async def test_ask_validation_error(mock_sagemaker):
-    """POST /api/ask returns 503 when a ValidationError-type exception occurs."""
-    mock_sagemaker.invoke_endpoint_with_response_stream.side_effect = Exception(
-        "An error occurred (ValidationError) when calling the InvokeEndpoint operation"
-    )
-
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        with patch("backend.inference.app.sagemaker_runtime", mock_sagemaker):
-            response = await client.post(
-                "/api/ask",
-                json={"question": "test question"},
-            )
-
-    assert response.status_code == 503
-    assert "not available" in response.json()["detail"].lower()
-
-
-@pytest.mark.asyncio
-async def test_ask_generic_error(mock_sagemaker):
+async def test_ask_generic_error(mock_bedrock):
     """POST /api/ask returns 500 on an unexpected exception."""
-    mock_sagemaker.invoke_endpoint_with_response_stream.side_effect = Exception(
+    mock_bedrock.converse_stream.side_effect = Exception(
         "Something totally unexpected"
     )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        with patch("backend.inference.app.sagemaker_runtime", mock_sagemaker):
+        with patch("backend.inference.app.bedrock_runtime", mock_bedrock):
             response = await client.post(
                 "/api/ask",
                 json={"question": "test question"},
             )
 
     assert response.status_code == 500
-    assert "SageMaker error" in response.json()["detail"]
+    assert "Bedrock error" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_ask_stream_skips_non_delta_events(mock_bedrock):
+    """Non-contentBlockDelta events are silently skipped in the SSE stream."""
+    mock_events = [
+        {"contentBlockStart": {"contentBlockIndex": 0}},
+        {"contentBlockDelta": {"delta": {"text": "ok"}}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+
+    mock_bedrock.converse_stream.return_value = {
+        "stream": iter(mock_events),
+    }
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("backend.inference.app.bedrock_runtime", mock_bedrock):
+            response = await client.post(
+                "/api/ask",
+                json={"question": "test"},
+            )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "ok" in body
+    assert "[DONE]" in body
 
 
 # --- JWKS and JWT validation tests ---
@@ -340,7 +375,7 @@ async def test_auth_jwt_decode_error():
 
 
 @pytest.mark.asyncio
-async def test_auth_valid_token_succeeds(mock_sagemaker):
+async def test_auth_valid_token_succeeds(mock_bedrock):
     """A valid JWT with correct kid and token_use=id passes auth."""
     app.dependency_overrides.clear()
 
@@ -354,19 +389,14 @@ async def test_auth_valid_token_succeeds(mock_sagemaker):
     valid_claims = {"sub": "user", "token_use": "id", "email": "user@test.com"}
     mock_jwks = {"keys": [{"kid": "test-kid", "kty": "oct", "k": "c2VjcmV0"}]}
 
-    tgi_data = "data: [DONE]\n"
-    mock_body = MagicMock()
-    mock_body.__iter__ = MagicMock(
-        return_value=iter([{"PayloadPart": {"Bytes": tgi_data.encode()}}])
-    )
-    mock_sagemaker.invoke_endpoint_with_response_stream.return_value = {
-        "Body": mock_body
+    mock_bedrock.converse_stream.return_value = {
+        "stream": iter([{"messageStop": {"stopReason": "end_turn"}}]),
     }
 
     with (
         patch("backend.inference.app._get_jwks", return_value=mock_jwks),
         patch("backend.inference.app.jwt.decode", return_value=valid_claims),
-        patch("backend.inference.app.sagemaker_runtime", mock_sagemaker),
+        patch("backend.inference.app.bedrock_runtime", mock_bedrock),
     ):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
@@ -379,30 +409,3 @@ async def test_auth_valid_token_succeeds(mock_sagemaker):
             )
 
     assert response.status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_stream_malformed_json(mock_sagemaker):
-    """Malformed JSON in SSE stream is skipped without error."""
-    tgi_data = 'data: {not valid json}\ndata: {"token": {"text": "ok"}}\ndata: [DONE]\n'
-
-    mock_body = MagicMock()
-    mock_body.__iter__ = MagicMock(
-        return_value=iter([{"PayloadPart": {"Bytes": tgi_data.encode()}}])
-    )
-    mock_sagemaker.invoke_endpoint_with_response_stream.return_value = {
-        "Body": mock_body
-    }
-
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        with patch("backend.inference.app.sagemaker_runtime", mock_sagemaker):
-            response = await client.post(
-                "/api/ask",
-                json={"question": "test"},
-            )
-
-    assert response.status_code == 200
-    body = response.text
-    assert "ok" in body
-    assert "[DONE]" in body

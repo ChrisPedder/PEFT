@@ -1,8 +1,8 @@
 """
-FastAPI Lambda proxy that forwards requests to the SageMaker streaming endpoint.
+FastAPI Lambda proxy that forwards requests to a Bedrock imported model.
 
 Runs inside Lambda via Lambda Web Adapter (LWA) for HTTP compatibility.
-Supports SSE streaming from SageMaker invoke_endpoint_with_response_stream.
+Supports SSE streaming from Bedrock's converse_stream API.
 """
 
 import json
@@ -26,11 +26,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ENDPOINT_NAME = os.environ.get("SAGEMAKER_ENDPOINT_NAME", "peft-obama-endpoint")
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "")
 COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
 COGNITO_REGION = os.environ.get("COGNITO_REGION", "eu-central-1")
 
-sagemaker_runtime = boto3.client("sagemaker-runtime")
+bedrock_runtime = boto3.client("bedrock-runtime")
 
 # JWKS cache
 _jwks_cache: dict | None = None
@@ -106,74 +106,43 @@ class AskRequest(BaseModel):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "endpoint": ENDPOINT_NAME}
+    return {"status": "ok", "model_id": MODEL_ID}
 
 
 @app.post("/api/ask")
 async def ask(req: AskRequest, _user: dict = Depends(get_current_user)):
     """
-    Forward a question to the SageMaker endpoint and stream the response.
-    Uses invoke_endpoint_with_response_stream for token-by-token SSE.
+    Forward a question to the Bedrock imported model and stream the response.
+    Uses converse_stream for token-by-token SSE.
     """
-    # Format prompt in Mistral chat template
-    prompt = f"<s>[INST] {req.question} [/INST]"
-
-    payload = json.dumps(
-        {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": req.max_tokens,
-                "temperature": req.temperature,
-                "do_sample": True,
-                "top_p": 0.9,
-                "repetition_penalty": 1.1,
-            },
-            "stream": True,
-        }
-    )
-
     try:
-        response = sagemaker_runtime.invoke_endpoint_with_response_stream(
-            EndpointName=ENDPOINT_NAME,
-            ContentType="application/json",
-            Body=payload,
+        response = bedrock_runtime.converse_stream(
+            modelId=MODEL_ID,
+            messages=[{"role": "user", "content": [{"text": req.question}]}],
+            inferenceConfig={
+                "maxTokens": req.max_tokens,
+                "temperature": req.temperature,
+                "topP": 0.9,
+            },
         )
-    except sagemaker_runtime.exceptions.ModelNotReadyException:
+    except bedrock_runtime.exceptions.ThrottlingException:
         raise HTTPException(
-            status_code=503,
-            detail="Model is warming up (scale-from-zero). Please try again in 3-5 minutes.",
+            status_code=429,
+            detail="Request throttled. Please try again shortly.",
         )
     except Exception as e:
         error_msg = str(e)
-        if "ValidationError" in error_msg or "Could not find" in error_msg:
-            raise HTTPException(
-                status_code=503,
-                detail="Model endpoint is not available. It may be scaling up.",
-            )
-        raise HTTPException(status_code=500, detail=f"SageMaker error: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Bedrock error: {error_msg}")
 
     def stream_response():
-        """Yield SSE events from SageMaker response stream."""
-        event_stream = response["Body"]
+        """Yield SSE events from Bedrock converse_stream response."""
+        event_stream = response["stream"]
         for event in event_stream:
-            chunk = event.get("PayloadPart", {}).get("Bytes", b"")
-            if chunk:
-                text = chunk.decode("utf-8", errors="replace")
-                # Parse TGI streaming format
-                for line in text.split("\n"):
-                    line = line.strip()
-                    if line.startswith("data:"):
-                        data = line[5:].strip()
-                        if data == "[DONE]":
-                            yield "data: [DONE]\n\n"
-                            return
-                        try:
-                            token_data = json.loads(data)
-                            token_text = token_data.get("token", {}).get("text", "")
-                            if token_text:
-                                yield f"data: {json.dumps({'token': token_text})}\n\n"
-                        except json.JSONDecodeError:
-                            continue
+            if "contentBlockDelta" in event:
+                delta = event["contentBlockDelta"].get("delta", {})
+                text = delta.get("text", "")
+                if text:
+                    yield f"data: {json.dumps({'token': text})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

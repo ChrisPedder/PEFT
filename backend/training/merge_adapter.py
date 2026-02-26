@@ -55,7 +55,7 @@ def main() -> None:
     model = model.merge_and_unload()
 
     print(f"Saving merged model to: {args.merged_output}")
-    model.save_pretrained(args.merged_output)
+    model.save_pretrained(args.merged_output, safe_serialization=True)
 
     tokenizer = AutoTokenizer.from_pretrained(args.adapter_path)
     tokenizer.save_pretrained(args.merged_output)
