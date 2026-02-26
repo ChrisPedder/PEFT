@@ -24,7 +24,7 @@ from pathlib import Path
 _requirements = Path(__file__).resolve().parent / "requirements.txt"
 if _requirements.exists() and os.environ.get("SM_MODEL_DIR"):
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "-r", str(_requirements), "--quiet"]
+        [sys.executable, "-m", "pip", "install", "-r", str(_requirements)]
     )
 
 import torch
@@ -36,6 +36,25 @@ from transformers import (
     BitsAndBytesConfig,
     TrainingArguments,
 )
+
+# Patch accelerate's dispatch_model to handle quantized models that don't support .to().
+# Older accelerate versions (<1.0) call model.to(device) which fails on BnB 4-bit models.
+try:
+    import accelerate.big_modeling as _abm
+
+    _original_dispatch = _abm.dispatch_model
+
+    def _safe_dispatch(model, device_map, *args, **kwargs):
+        try:
+            return _original_dispatch(model, device_map, *args, **kwargs)
+        except ValueError as e:
+            if ".to" in str(e) and ("4-bit" in str(e) or "8-bit" in str(e)):
+                return model
+            raise
+
+    _abm.dispatch_model = _safe_dispatch
+except ImportError:
+    pass
 from trl import SFTTrainer
 
 # ---------------------------------------------------------------------------
