@@ -127,7 +127,7 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL,
         quantization_config=QUANTIZATION_CONFIG,
-        device_map="auto",
+        device_map={"": 0},
         torch_dtype=torch.bfloat16,
     )
 
