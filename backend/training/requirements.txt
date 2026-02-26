@@ -1,10 +1,11 @@
 # Upgrade from container defaults (transformers 4.36.0 / tokenizers 0.15.0)
 # to support Mistral-7B-Instruct-v0.3 tokenizer format.
 # The container's tokenizers library is too old to parse v0.3's pre-tokenizer config.
-# trl and bitsandbytes must also be upgraded to avoid `.to()` errors with 4-bit models.
+# accelerate>=1.0.0 fixes dispatch_model calling .to() on quantized models.
+# trl and bitsandbytes must also be upgraded for compatibility.
 transformers==4.43.4
 tokenizers>=0.19.1
-accelerate>=0.33.0
+accelerate>=1.0.0
 peft==0.14.0
 trl==0.11.4
 bitsandbytes>=0.43.0
