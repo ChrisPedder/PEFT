@@ -14,7 +14,18 @@ Usage (SageMaker):
 import argparse
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
+
+# Install dependencies from requirements.txt before importing ML libraries.
+# The SageMaker PyTorch container doesn't always auto-install requirements.txt.
+# Only run inside SageMaker (SM_MODEL_DIR is always set in training jobs).
+_requirements = Path(__file__).resolve().parent / "requirements.txt"
+if _requirements.exists() and os.environ.get("SM_MODEL_DIR"):
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "-r", str(_requirements), "--quiet"]
+    )
 
 import torch
 from datasets import Dataset
