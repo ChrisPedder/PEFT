@@ -116,7 +116,7 @@ export class ScraperBatchStack extends cdk.Stack {
           command: [
             "sh",
             "-c",
-            "python -m scraper.scrape_speeches --bucket $DATA_BUCKET && python -m scraper.upload_to_s3",
+            "python -m scraper.scrape_speeches --bucket $DATA_BUCKET",
           ],
         }
       ),
@@ -146,11 +146,7 @@ export class ScraperBatchStack extends cdk.Stack {
           command: [
             "sh",
             "-c",
-            [
-              "aws s3 cp s3://$DATA_BUCKET/raw/speeches.jsonl scraper/data/raw_speeches.jsonl",
-              "python -m scraper.clean_and_format",
-              "aws s3 cp scraper/data/training_data.jsonl s3://$TRAINING_DATA_BUCKET/training_data.jsonl",
-            ].join(" && "),
+            "python -m scraper.clean_and_format --bucket $DATA_BUCKET --output-bucket $TRAINING_DATA_BUCKET",
           ],
         }
       ),

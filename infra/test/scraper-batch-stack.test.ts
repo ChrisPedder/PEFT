@@ -85,4 +85,30 @@ describe("ScraperBatchStack", () => {
       },
     });
   });
+
+  test("process container uses pure Python command (no aws CLI)", () => {
+    template.hasResourceProperties("AWS::Batch::JobDefinition", {
+      JobDefinitionName: "peft-process-speeches",
+      ContainerProperties: {
+        Command: [
+          "sh",
+          "-c",
+          "python -m scraper.clean_and_format --bucket $DATA_BUCKET --output-bucket $TRAINING_DATA_BUCKET",
+        ],
+      },
+    });
+  });
+
+  test("scrape container command does not include upload_to_s3", () => {
+    template.hasResourceProperties("AWS::Batch::JobDefinition", {
+      JobDefinitionName: "peft-scrape-speeches",
+      ContainerProperties: {
+        Command: [
+          "sh",
+          "-c",
+          "python -m scraper.scrape_speeches --bucket $DATA_BUCKET",
+        ],
+      },
+    });
+  });
 });

@@ -271,15 +271,13 @@ def main() -> None:
     parser.add_argument(
         "--bucket",
         default=None,
-        help="S3 bucket for incremental uploads (optional)",
+        help="S3 bucket to upload individual speech files to (optional)",
     )
     args = parser.parse_args()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    speech_index = 0
-
-    # Open output file in append mode so each speech is persisted immediately
+    # Scrape all speeches to local file first (for resilience / local dev)
     with open(OUTPUT_FILE, "w") as f:
         # Source 1: American Presidency Project
         logger.info("=== Scraping American Presidency Project ===")
@@ -291,9 +289,6 @@ def main() -> None:
             if speech:
                 f.write(json.dumps(speech) + "\n")
                 f.flush()
-                if args.bucket:
-                    upload_speech_to_s3(speech, speech_index, args.bucket)
-                speech_index += 1
             logger.info("[APP %d/%d] %s", i, len(app_index), meta["title"])
             time.sleep(REQUEST_DELAY)
 
@@ -307,9 +302,6 @@ def main() -> None:
             if speech:
                 f.write(json.dumps(speech) + "\n")
                 f.flush()
-                if args.bucket:
-                    upload_speech_to_s3(speech, speech_index, args.bucket)
-                speech_index += 1
             logger.info("[WH %d/%d] %s", i, len(wh_index), meta["title"])
             time.sleep(REQUEST_DELAY)
 
@@ -334,6 +326,13 @@ def main() -> None:
             f.write(json.dumps(speech) + "\n")
 
     logger.info("Saved to %s", OUTPUT_FILE)
+
+    # Upload deduplicated speeches as individual files to S3
+    if args.bucket:
+        logger.info("Uploading %d speeches to S3...", len(unique_speeches))
+        for i, speech in enumerate(unique_speeches):
+            upload_speech_to_s3(speech, i, args.bucket)
+        logger.info("Uploaded %d individual speech files to S3", len(unique_speeches))
 
 
 if __name__ == "__main__":

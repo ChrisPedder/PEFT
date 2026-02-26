@@ -1,12 +1,19 @@
 """
 Clean raw speeches and generate synthetic Q&A training pairs using AWS Bedrock.
 
-Input:  backend/scraper/data/raw_speeches.jsonl
-Output: backend/scraper/data/training_data.jsonl
+Local mode (default):
+  Input:  backend/scraper/data/raw_speeches.jsonl
+  Output: backend/scraper/data/training_data.jsonl
+
+S3 mode (--bucket / --output-bucket):
+  Input:  s3://{bucket}/raw/individual/*.jsonl
+  Output: s3://{output-bucket}/training_data.jsonl
 """
 
+import argparse
 import json
 import logging
+import random
 import re
 import sys
 from pathlib import Path
@@ -122,21 +129,81 @@ def generate_qa_pairs(speech: dict) -> tuple[list[dict], dict]:
         return [], {}
 
 
-def main() -> None:
-    if not INPUT_FILE.exists():
-        logger.error("Input file not found: %s", INPUT_FILE)
-        logger.error("Run scrape_speeches.py first.")
-        sys.exit(1)
+def load_speeches_from_s3(bucket: str) -> list[dict]:
+    """Load individual speech files from s3://{bucket}/raw/individual/*.jsonl."""
+    s3 = boto3.client("s3")
+    prefix = "raw/individual/"
+    keys: list[str] = []
 
-    # Load raw speeches
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            if obj["Key"].endswith(".jsonl"):
+                keys.append(obj["Key"])
+
+    logger.info("Found %d speech files in s3://%s/%s", len(keys), bucket, prefix)
+
     speeches: list[dict] = []
-    with open(INPUT_FILE) as f:
-        for line in f:
-            line = line.strip()
-            if line:
+    for key in keys:
+        body = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode()
+        for line in body.strip().splitlines():
+            if line.strip():
                 speeches.append(json.loads(line))
 
+    return speeches
+
+
+def upload_to_s3(local_path: Path, bucket: str, key: str) -> None:
+    """Upload a local file to S3."""
+    s3 = boto3.client("s3")
+    s3.upload_file(str(local_path), bucket, key)
+    logger.info("Uploaded %s to s3://%s/%s", local_path, bucket, key)
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Clean speeches and generate Q&A pairs"
+    )
+    parser.add_argument("--bucket", help="S3 bucket to read raw speeches from")
+    parser.add_argument(
+        "--output-bucket", help="S3 bucket to write training_data.jsonl to"
+    )
+    parser.add_argument(
+        "--sample",
+        type=int,
+        default=0,
+        help="Randomly sample N speeches (0 = all, default)",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for sampling")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+
+    # Load speeches
+    if args.bucket:
+        speeches = load_speeches_from_s3(args.bucket)
+    else:
+        if not INPUT_FILE.exists():
+            logger.error("Input file not found: %s", INPUT_FILE)
+            logger.error("Run scrape_speeches.py first.")
+            sys.exit(1)
+
+        speeches = []
+        with open(INPUT_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    speeches.append(json.loads(line))
+
     logger.info("Loaded %d speeches", len(speeches))
+
+    # Sample if requested
+    if args.sample > 0 and args.sample < len(speeches):
+        random.seed(args.seed)
+        speeches = random.sample(speeches, args.sample)
+        logger.info("Sampled %d speeches (seed=%d)", args.sample, args.seed)
 
     # Clean texts
     for s in speeches:
@@ -198,6 +265,10 @@ def main() -> None:
             f.write(json.dumps(pair) + "\n")
 
     logger.info("Saved to %s", OUTPUT_FILE)
+
+    # Upload to S3 if requested
+    if args.output_bucket:
+        upload_to_s3(OUTPUT_FILE, args.output_bucket, "training_data.jsonl")
 
 
 if __name__ == "__main__":

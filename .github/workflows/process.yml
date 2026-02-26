@@ -2,6 +2,12 @@ name: Process Speeches
 
 on:
   workflow_dispatch:
+    inputs:
+      sample_size:
+        description: "Number of speeches to sample (0 = all)"
+        required: false
+        default: "0"
+        type: string
 
 permissions:
   id-token: write
@@ -10,6 +16,8 @@ permissions:
 jobs:
   process:
     runs-on: ubuntu-latest
+    env:
+      SAMPLE_SIZE: ${{ github.event.inputs.sample_size || '0' }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -20,13 +28,20 @@ jobs:
       - name: Submit process job
         id: submit
         run: |
+          if [ "$SAMPLE_SIZE" != "0" ] && [ -n "$SAMPLE_SIZE" ]; then
+            COMMAND="python -m scraper.clean_and_format --bucket \$DATA_BUCKET --output-bucket \$TRAINING_DATA_BUCKET --sample $SAMPLE_SIZE"
+          else
+            COMMAND="python -m scraper.clean_and_format --bucket \$DATA_BUCKET --output-bucket \$TRAINING_DATA_BUCKET"
+          fi
+
           JOB_ID=$(aws batch submit-job \
             --job-name "process-speeches-$(date +%Y%m%d-%H%M%S)" \
             --job-queue peft-scraper-job-queue \
             --job-definition peft-process-speeches \
+            --container-overrides "{\"command\": [\"sh\", \"-c\", \"$COMMAND\"]}" \
             --query 'jobId' --output text)
           echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
-          echo "Submitted Batch job: $JOB_ID"
+          echo "Submitted Batch job: $JOB_ID (sample_size=$SAMPLE_SIZE)"
 
       - name: Poll until complete
         id: poll
