@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from backend.scripts.import_to_bedrock import (
     create_import_job,
+    main,
     poll_import_job,
     write_model_arn,
 )
@@ -135,3 +136,130 @@ class TestWriteModelArn:
         )
         assert item["model_name"] == "peft-obama"
         assert "timestamp" in item
+
+
+class TestMain:
+    def test_main_default_args(self):
+        """main() orchestrates import with default model name and auto-detected role."""
+        mock_sts = MagicMock()
+        mock_sts.get_caller_identity.return_value = {"Account": "123456789012"}
+
+        mock_bedrock = MagicMock()
+        mock_bedrock.create_model_import_job.return_value = {
+            "jobArn": "arn:aws:bedrock:eu-central-1:123456789012:model-import-job/j1"
+        }
+        mock_bedrock.get_model_import_job.return_value = {
+            "status": "Completed",
+            "importedModelArn": "arn:aws:bedrock:eu-central-1:123456789012:imported-model/peft-obama",
+        }
+
+        mock_table = MagicMock()
+        mock_dynamodb = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+
+        mock_session = MagicMock()
+        mock_session.region_name = "eu-central-1"
+
+        def mock_client(service, **kwargs):
+            if service == "sts":
+                return mock_sts
+            if service == "bedrock":
+                return mock_bedrock
+            return MagicMock()
+
+        with (
+            patch("sys.argv", ["import_to_bedrock.py"]),
+            patch(
+                "backend.scripts.import_to_bedrock.boto3.client",
+                side_effect=mock_client,
+            ),
+            patch(
+                "backend.scripts.import_to_bedrock.boto3.session.Session",
+                return_value=mock_session,
+            ),
+            patch(
+                "backend.scripts.import_to_bedrock.boto3.resource",
+                return_value=mock_dynamodb,
+            ),
+            patch("backend.scripts.import_to_bedrock.time.sleep"),
+        ):
+            main()
+
+        # Verify import job was created with correct S3 URI
+        mock_bedrock.create_model_import_job.assert_called_once()
+        call_kwargs = mock_bedrock.create_model_import_job.call_args[1]
+        assert call_kwargs["importedModelName"] == "peft-obama"
+        assert (
+            call_kwargs["roleArn"]
+            == "arn:aws:iam::123456789012:role/PeftBedrockImportRole"
+        )
+        assert (
+            call_kwargs["modelDataSource"]["s3DataSource"]["s3Uri"]
+            == "s3://peft-model-artifacts-123456789012/merged-model/"
+        )
+
+        # Verify model ARN written to DynamoDB
+        mock_table.put_item.assert_called_once()
+        item = mock_table.put_item.call_args[1]["Item"]
+        assert (
+            item["bedrock_model_arn"]
+            == "arn:aws:bedrock:eu-central-1:123456789012:imported-model/peft-obama"
+        )
+
+    def test_main_custom_args(self):
+        """main() uses --model-name and --role-arn when provided."""
+        mock_sts = MagicMock()
+        mock_sts.get_caller_identity.return_value = {"Account": "999888777666"}
+
+        mock_bedrock = MagicMock()
+        mock_bedrock.create_model_import_job.return_value = {
+            "jobArn": "arn:aws:bedrock:eu-central-1:999888777666:model-import-job/j2"
+        }
+        mock_bedrock.get_model_import_job.return_value = {
+            "status": "Completed",
+            "importedModelArn": "arn:aws:bedrock:eu-central-1:999888777666:imported-model/my-model",
+        }
+
+        mock_dynamodb = MagicMock()
+        mock_dynamodb.Table.return_value = MagicMock()
+
+        mock_session = MagicMock()
+        mock_session.region_name = "eu-central-1"
+
+        def mock_client(service, **kwargs):
+            if service == "sts":
+                return mock_sts
+            if service == "bedrock":
+                return mock_bedrock
+            return MagicMock()
+
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "import_to_bedrock.py",
+                    "--model-name",
+                    "my-model",
+                    "--role-arn",
+                    "arn:aws:iam::999888777666:role/CustomRole",
+                ],
+            ),
+            patch(
+                "backend.scripts.import_to_bedrock.boto3.client",
+                side_effect=mock_client,
+            ),
+            patch(
+                "backend.scripts.import_to_bedrock.boto3.session.Session",
+                return_value=mock_session,
+            ),
+            patch(
+                "backend.scripts.import_to_bedrock.boto3.resource",
+                return_value=mock_dynamodb,
+            ),
+            patch("backend.scripts.import_to_bedrock.time.sleep"),
+        ):
+            main()
+
+        call_kwargs = mock_bedrock.create_model_import_job.call_args[1]
+        assert call_kwargs["importedModelName"] == "my-model"
+        assert call_kwargs["roleArn"] == "arn:aws:iam::999888777666:role/CustomRole"
