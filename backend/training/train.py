@@ -65,13 +65,23 @@ def format_instruction(sample: dict) -> str:
 
 
 def load_dataset(data_path: str) -> Dataset:
-    """Load JSONL training data."""
+    """Load JSONL training data from a single file or a directory of JSONL files."""
     samples = []
-    with open(data_path) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                samples.append(json.loads(line))
+    p = Path(data_path)
+
+    if p.is_dir():
+        for f in sorted(p.glob("*.jsonl")):
+            with open(f) as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        samples.append(json.loads(line))
+    else:
+        with open(p) as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    samples.append(json.loads(line))
 
     print(f"Loaded {len(samples)} training samples")
 
@@ -99,11 +109,7 @@ def main() -> None:
     parser.add_argument("--warmup-ratio", type=float, default=0.03)
     args = parser.parse_args()
 
-    # Resolve data path — SageMaker passes a directory
     data_path = args.data_path
-    if os.path.isdir(data_path):
-        data_path = os.path.join(data_path, "training_data.jsonl")
-
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
 

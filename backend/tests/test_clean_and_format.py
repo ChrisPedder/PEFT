@@ -223,7 +223,7 @@ class TestLoadSpeechesFromS3:
 class TestMain:
     @patch("backend.scraper.clean_and_format.bedrock")
     def test_main_local_mode(self, mock_bedrock, tmp_path):
-        """main reads from local file when no --bucket arg is given."""
+        """main writes individual QA files to qa/ subdir in local mode."""
         input_file = tmp_path / "raw_speeches.jsonl"
         speech = {
             "title": "Test Speech",
@@ -234,8 +234,6 @@ class TestMain:
         }
         with open(input_file, "w") as f:
             f.write(json.dumps(speech) + "\n")
-
-        output_file = tmp_path / "training_data.jsonl"
 
         qa_json = json.dumps(
             [
@@ -249,13 +247,20 @@ class TestMain:
 
         with (
             patch("backend.scraper.clean_and_format.INPUT_FILE", input_file),
-            patch("backend.scraper.clean_and_format.OUTPUT_FILE", output_file),
+            patch("backend.scraper.clean_and_format.DATA_DIR", tmp_path),
         ):
             main([])
 
-        assert output_file.exists()
-        with open(output_file) as f:
-            lines = [json.loads(line) for line in f if line.strip()]
+        qa_dir = tmp_path / "qa"
+        assert qa_dir.is_dir()
+        qa_files = sorted(qa_dir.glob("*.jsonl"))
+        assert len(qa_files) == 1
+        assert qa_files[0].name == "00000.jsonl"
+        lines = [
+            json.loads(line)
+            for line in qa_files[0].read_text().splitlines()
+            if line.strip()
+        ]
         assert len(lines) == 1
         assert lines[0]["instruction"] == "What about policy?"
 
@@ -272,25 +277,23 @@ class TestMain:
                 }
                 f.write(json.dumps(speech) + "\n")
 
-        output_file = tmp_path / "training_data.jsonl"
-
         qa_json = json.dumps([{"instruction": "Q?", "output": "A."}])
         mock_bedrock.converse.return_value = _bedrock_response(qa_json)
 
         with (
             patch("backend.scraper.clean_and_format.INPUT_FILE", input_file),
-            patch("backend.scraper.clean_and_format.OUTPUT_FILE", output_file),
+            patch("backend.scraper.clean_and_format.DATA_DIR", tmp_path),
         ):
             main(["--sample", "3", "--seed", "42"])
 
         # Should generate pairs for only 3 speeches
         assert mock_bedrock.converse.call_count == 3
 
-    @patch("backend.scraper.clean_and_format.upload_to_s3")
+    @patch("backend.scraper.clean_and_format.boto3.client")
     @patch("backend.scraper.clean_and_format.load_speeches_from_s3")
     @patch("backend.scraper.clean_and_format.bedrock")
-    def test_main_s3_mode(self, mock_bedrock, mock_load, mock_upload, tmp_path):
-        """main with --bucket reads from S3 and --output-bucket uploads result."""
+    def test_main_s3_mode(self, mock_bedrock, mock_load, mock_boto3_client):
+        """main with --bucket reads from S3 and --output-bucket uploads per-speech files."""
         mock_load.return_value = [
             {"title": "S3 Speech", "date": "2010-01-01", "text": "Hello from S3. " * 10}
         ]
@@ -298,20 +301,23 @@ class TestMain:
         qa_json = json.dumps([{"instruction": "Q?", "output": "A."}])
         mock_bedrock.converse.return_value = _bedrock_response(qa_json)
 
-        output_file = tmp_path / "training_data.jsonl"
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
 
-        with patch("backend.scraper.clean_and_format.OUTPUT_FILE", output_file):
-            main(["--bucket", "my-data", "--output-bucket", "my-training"])
+        main(["--bucket", "my-data", "--output-bucket", "my-training"])
 
         mock_load.assert_called_once_with("my-data", 0, 42)
-        mock_upload.assert_called_once_with(
-            output_file, "my-training", "training_data.jsonl"
+        mock_boto3_client.assert_called_once_with("s3")
+        mock_s3.put_object.assert_called_once_with(
+            Bucket="my-training",
+            Key="qa/00000.jsonl",
+            Body=mock_s3.put_object.call_args.kwargs["Body"],
         )
-
-        assert output_file.exists()
-        with open(output_file) as f:
-            lines = [json.loads(line) for line in f if line.strip()]
+        # Verify the content is valid JSONL
+        body = mock_s3.put_object.call_args.kwargs["Body"].decode()
+        lines = [json.loads(line) for line in body.strip().splitlines()]
         assert len(lines) == 1
+        assert lines[0]["instruction"] == "Q?"
 
     def test_main_missing_input(self, tmp_path):
         """main exits with code 1 when input file does not exist."""

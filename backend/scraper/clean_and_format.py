@@ -3,11 +3,11 @@ Clean raw speeches and generate synthetic Q&A training pairs using AWS Bedrock.
 
 Local mode (default):
   Input:  backend/scraper/data/raw_speeches.jsonl
-  Output: backend/scraper/data/training_data.jsonl
+  Output: backend/scraper/data/qa/{index:05d}.jsonl  (one file per speech)
 
 S3 mode (--bucket / --output-bucket):
   Input:  s3://{bucket}/raw/individual/*.jsonl
-  Output: s3://{output-bucket}/training_data.jsonl
+  Output: s3://{output-bucket}/qa/{index:05d}.jsonl  (one file per speech)
 """
 
 import argparse
@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
 INPUT_FILE = DATA_DIR / "raw_speeches.jsonl"
-OUTPUT_FILE = DATA_DIR / "training_data.jsonl"
 
 BEDROCK_MODEL_ID = "eu.anthropic.claude-sonnet-4-20250514-v1:0"
 
@@ -162,13 +161,6 @@ def load_speeches_from_s3(bucket: str, sample: int = 0, seed: int = 42) -> list[
     return speeches
 
 
-def upload_to_s3(local_path: Path, bucket: str, key: str) -> None:
-    """Upload a local file to S3."""
-    s3 = boto3.client("s3")
-    s3.upload_file(str(local_path), bucket, key)
-    logger.info("Uploaded %s to s3://%s/%s", local_path, bucket, key)
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Clean speeches and generate Q&A pairs"
@@ -222,16 +214,35 @@ def main(argv: list[str] | None = None) -> None:
     INPUT_COST_PER_M = 3.0
     OUTPUT_COST_PER_M = 15.0
 
-    # Generate Q&A pairs
-    all_pairs: list[dict] = []
+    # Set up output destination
+    s3_out = None
+    qa_dir = None
+    if args.output_bucket:
+        s3_out = boto3.client("s3")
+    else:
+        qa_dir = DATA_DIR / "qa"
+        qa_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate Q&A pairs and write per-speech files
+    total_pairs = 0
     total_input_tokens = 0
     total_output_tokens = 0
     for i, speech in enumerate(speeches, 1):
         pairs, usage = generate_qa_pairs(speech)
-        all_pairs.extend(pairs)
         total_input_tokens += usage.get("inputTokens", 0)
         total_output_tokens += usage.get("outputTokens", 0)
         if pairs:
+            content = "".join(json.dumps(p) + "\n" for p in pairs)
+            key = f"qa/{i - 1:05d}.jsonl"
+            if s3_out:
+                s3_out.put_object(
+                    Bucket=args.output_bucket,
+                    Key=key,
+                    Body=content.encode(),
+                )
+            else:
+                (qa_dir / f"{i - 1:05d}.jsonl").write_text(content)
+            total_pairs += len(pairs)
             logger.info(
                 "[%d/%d] Generated %d pairs for: %s",
                 i,
@@ -260,24 +271,13 @@ def main(argv: list[str] | None = None) -> None:
     total_cost = (total_input_tokens * INPUT_COST_PER_M / 1e6) + (
         total_output_tokens * OUTPUT_COST_PER_M / 1e6
     )
-    logger.info("Total Q&A pairs generated: %d", len(all_pairs))
+    logger.info("Total Q&A pairs generated: %d", total_pairs)
     logger.info(
         "Total tokens: %d input, %d output — est. cost $%.2f",
         total_input_tokens,
         total_output_tokens,
         total_cost,
     )
-
-    # Write output
-    with open(OUTPUT_FILE, "w") as f:
-        for pair in all_pairs:
-            f.write(json.dumps(pair) + "\n")
-
-    logger.info("Saved to %s", OUTPUT_FILE)
-
-    # Upload to S3 if requested
-    if args.output_bucket:
-        upload_to_s3(OUTPUT_FILE, args.output_bucket, "training_data.jsonl")
 
 
 if __name__ == "__main__":

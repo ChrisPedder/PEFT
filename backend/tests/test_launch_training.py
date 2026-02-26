@@ -111,7 +111,7 @@ class TestLaunchTraining:
                     "DataSource": {
                         "S3DataSource": {
                             "S3DataType": "S3Prefix",
-                            "S3Uri": "s3://peft-training-data-123456789012/",
+                            "S3Uri": "s3://peft-training-data-123456789012/qa/",
                         }
                     },
                 }

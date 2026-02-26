@@ -101,6 +101,33 @@ class TestLoadDataset:
         assert "What is your view?" in ds[0]["text"]
         assert "My view is clear." in ds[0]["text"]
 
+    def test_load_dataset_from_directory(self, tmp_path):
+        """load_dataset reads all JSONL files in a directory."""
+        qa_dir = tmp_path / "qa"
+        qa_dir.mkdir()
+
+        samples_a = [
+            {"instruction": "Q1?", "input": "", "output": "A1."},
+            {"instruction": "Q2?", "input": "", "output": "A2."},
+        ]
+        samples_b = [
+            {"instruction": "Q3?", "input": "", "output": "A3."},
+        ]
+
+        with open(qa_dir / "00000.jsonl", "w") as f:
+            for s in samples_a:
+                f.write(json.dumps(s) + "\n")
+        with open(qa_dir / "00001.jsonl", "w") as f:
+            for s in samples_b:
+                f.write(json.dumps(s) + "\n")
+
+        ds = load_dataset(str(qa_dir))
+
+        assert isinstance(ds, Dataset)
+        assert len(ds) == 3
+        assert "Q1?" in ds[0]["text"]
+        assert "Q3?" in ds[2]["text"]
+
     def test_load_dataset_skips_empty_lines(self, tmp_path):
         """load_dataset skips blank lines in the JSONL file."""
         data_file = tmp_path / "training_data.jsonl"
