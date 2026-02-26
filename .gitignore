@@ -219,6 +219,9 @@ frontend/dist/
 # Scraped data (large files, regeneratable)
 backend/scraper/data/
 
+# Local test scripts
+backend/scraper/test_qa_sample.py
+
 # Model artifacts (too large for git)
 *.bin
 *.safetensors

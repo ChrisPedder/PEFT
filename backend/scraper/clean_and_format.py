@@ -21,7 +21,7 @@ DATA_DIR = Path(__file__).parent / "data"
 INPUT_FILE = DATA_DIR / "raw_speeches.jsonl"
 OUTPUT_FILE = DATA_DIR / "training_data.jsonl"
 
-BEDROCK_MODEL_ID = "anthropic.claude-sonnet-4-20250514-v1:0"
+BEDROCK_MODEL_ID = "eu.anthropic.claude-sonnet-4-20250514-v1:0"
 
 # AWS Bedrock client (uses AWS credentials from environment / instance profile)
 bedrock = boto3.client("bedrock-runtime")

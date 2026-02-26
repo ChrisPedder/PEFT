@@ -32,6 +32,7 @@ cd infra && npm ci && npm test
 |----------|---------|-------------|
 | CI | Push/PR to main | Python tests, TypeScript tests, CDK synth |
 | Deploy | After CI passes on main | CDK deploy all stacks |
-| Scrape | Manual dispatch | Scrape speeches, optionally clean & upload |
+| Scrape | Manual dispatch | Scrape speeches from APP and WH Archives to S3 |
+| Process | Manual dispatch | Generate Q&A training pairs from raw speeches via Bedrock |
 | Train | Manual dispatch | Launch SageMaker training job |
 | Update Model | Manual dispatch | Swap SageMaker endpoint to new model |
