@@ -89,6 +89,24 @@ describe("auth module", () => {
       const session = await completeNewPassword(result.cognitoUser, "NewPass123!");
       expect(session).toBe(mockSession);
     });
+
+    it("rejects on failure", async () => {
+      mockCompleteNewPasswordChallenge.mockImplementation(
+        (_pw: string, _attrs: unknown, callbacks: { onFailure: (e: Error) => void }) => {
+          callbacks.onFailure(new Error("Password does not meet requirements"));
+        }
+      );
+
+      mockAuthenticateUser.mockImplementation((_details: unknown, callbacks: { newPasswordRequired: () => void }) => {
+        callbacks.newPasswordRequired();
+      });
+      const result = await signIn("user@test.com", "temp");
+      if (!("cognitoUser" in result)) throw new Error("Expected challenge");
+
+      await expect(completeNewPassword(result.cognitoUser, "weak")).rejects.toThrow(
+        "Password does not meet requirements"
+      );
+    });
   });
 
   describe("getIdToken", () => {
@@ -159,5 +177,29 @@ describe("auth module", () => {
 
       expect(() => signOut()).not.toThrow();
     });
+  });
+});
+
+describe("auth module — before initAuth", () => {
+  it("signIn throws when auth not initialized", async () => {
+    // Re-import a fresh module without calling initAuth
+    vi.resetModules();
+    const freshAuth = await import("../auth");
+    expect(() => freshAuth.signIn("user@test.com", "pass")).toThrow(
+      "Auth not initialized"
+    );
+  });
+
+  it("getIdToken returns null when auth not initialized", async () => {
+    vi.resetModules();
+    const freshAuth = await import("../auth");
+    const token = await freshAuth.getIdToken();
+    expect(token).toBeNull();
+  });
+
+  it("signOut does not throw when auth not initialized", async () => {
+    vi.resetModules();
+    const freshAuth = await import("../auth");
+    expect(() => freshAuth.signOut()).not.toThrow();
   });
 });

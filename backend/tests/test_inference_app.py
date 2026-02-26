@@ -417,3 +417,32 @@ async def test_auth_valid_token_succeeds(mock_bedrock):
             )
 
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_auth_missing_kid_in_header():
+    """Returns 401 when token header has no kid field."""
+    app.dependency_overrides.clear()
+
+    token = jose_jwt.encode(
+        {"sub": "user", "token_use": "id"},
+        "secret",
+        algorithm="HS256",
+    )
+
+    with patch(
+        "backend.inference.app.jwt.get_unverified_header",
+        return_value={"alg": "HS256"},
+    ):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/ask",
+                json={"question": "test"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert response.status_code == 401
+    assert "invalid token header" in response.json()["detail"].lower()
