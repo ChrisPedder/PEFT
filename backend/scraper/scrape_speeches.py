@@ -201,7 +201,7 @@ def scrape_wh_speech(meta: dict) -> dict | None:
         return None
 
     body = soup.select_one(
-        "div.field-name-body, div.pane-node-body, article .field--type-text-with-summary"
+        "div.field-name-field-forall-body, div.field-name-body, div.pane-node-body, article .field--type-text-with-summary"
     )
     if not body:
         return None
