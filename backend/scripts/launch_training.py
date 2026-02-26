@@ -11,10 +11,15 @@ Usage:
 """
 
 import argparse
+import io
+import tarfile
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import boto3
+
+TRAINING_DIR = Path(__file__).resolve().parent.parent / "training"
 
 # ---------------------------------------------------------------------------
 # HuggingFace training container images by region
@@ -29,6 +34,24 @@ HF_TRAINING_IMAGES = {
 
 DYNAMODB_TABLE = "peft-training-metrics"
 ENDPOINT_NAME = "peft-obama-endpoint"
+
+
+def upload_training_code(s3_client, bucket: str, key: str) -> str:
+    """Package training/ dir into a tarball and upload to S3.
+
+    Returns the full s3:// URI of the uploaded archive.
+    """
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for path in sorted(TRAINING_DIR.iterdir()):
+            if path.is_file() and not path.name.startswith("."):
+                tar.add(str(path), arcname=path.name)
+    buf.seek(0)
+
+    s3_client.put_object(Bucket=bucket, Key=key, Body=buf.getvalue())
+    uri = f"s3://{bucket}/{key}"
+    print(f"Uploaded training code to {uri}")
+    return uri
 
 
 def create_training_job(
@@ -214,24 +237,33 @@ def main() -> None:
 
     # Build resource identifiers
     role_arn = f"arn:aws:iam::{account_id}:role/PeftTrainingRole"
-    data_uri = f"s3://peft-training-data-{account_id}/qa/"
+    data_bucket = f"peft-training-data-{account_id}"
+    data_uri = f"s3://{data_bucket}/qa/"
     output_uri = f"s3://peft-model-artifacts-{account_id}/"
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     job_name = f"peft-obama-{timestamp}"
+
+    # Create AWS clients
+    s3_client = boto3.client("s3", region_name=region)
+    sagemaker_client = boto3.client("sagemaker", region_name=region)
+    dynamodb_resource = boto3.resource("dynamodb", region_name=region)
+
+    # Upload training source code
+    code_key = f"code/{job_name}/sourcedir.tar.gz"
+    code_uri = upload_training_code(s3_client, data_bucket, code_key)
 
     hyperparameters = {
         "epochs": str(args.epochs),
         "per_device_train_batch_size": str(args.batch_size),
         "learning_rate": str(args.learning_rate),
+        "sagemaker_program": "train.py",
+        "sagemaker_submit_directory": code_uri,
+        "sagemaker_region": region,
     }
 
     print(f"Job name: {job_name}")
     print(f"Hyperparameters: {hyperparameters}")
     print(f"Instance type: {args.instance_type}")
-
-    # Create AWS clients
-    sagemaker_client = boto3.client("sagemaker", region_name=region)
-    dynamodb_resource = boto3.resource("dynamodb", region_name=region)
 
     # Step 1: Create the training job
     create_training_job(

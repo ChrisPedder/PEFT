@@ -3,7 +3,8 @@
 These tests define the expected interface for the launch_training script.
 The script will:
 - Parse args: --epochs, --batch-size, --learning-rate, --instance-type
-- Call sagemaker.create_training_job()
+- Package and upload training code to S3
+- Call sagemaker.create_training_job() with sagemaker_program hyperparameter
 - Poll describe_training_job() until complete/failed
 - Write metrics to DynamoDB
 
@@ -11,8 +12,10 @@ The actual script will be created by another agent. These tests validate
 the expected interaction with AWS services using moto mocks.
 """
 
+import io
 import json
 import sys
+import tarfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
@@ -22,6 +25,8 @@ import pytest
 from moto import mock_aws
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from backend.scripts.launch_training import upload_training_code
 
 
 @pytest.fixture
@@ -82,6 +87,26 @@ def aws_setup():
         }
 
 
+class TestUploadTrainingCode:
+    def test_upload_training_code(self, aws_setup):
+        """upload_training_code packages training dir and uploads to S3."""
+        s3 = aws_setup["s3"]
+        bucket = "peft-training-data-123456789012"
+        key = "code/test-job/sourcedir.tar.gz"
+
+        uri = upload_training_code(s3, bucket, key)
+
+        assert uri == f"s3://{bucket}/{key}"
+
+        # Download and verify the tarball contents
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        buf = io.BytesIO(obj["Body"].read())
+        with tarfile.open(fileobj=buf, mode="r:gz") as tar:
+            names = tar.getnames()
+        assert "train.py" in names
+        assert "requirements.txt" in names
+
+
 class TestLaunchTraining:
     def test_job_creation(self, aws_setup):
         """SageMaker create_training_job is called with correct parameters."""
@@ -93,12 +118,16 @@ class TestLaunchTraining:
 
         # Simulate what the script should do
         job_name = "peft-obama-training-test"
+        code_uri = "s3://peft-training-data-123456789012/code/sourcedir.tar.gz"
         params = {
             "TrainingJobName": job_name,
             "HyperParameters": {
                 "epochs": "3",
                 "batch_size": "4",
                 "learning_rate": "0.0002",
+                "sagemaker_program": "train.py",
+                "sagemaker_submit_directory": code_uri,
+                "sagemaker_region": "us-east-1",
             },
             "AlgorithmSpecification": {
                 "TrainingImage": "763104351884.dkr.ecr.us-east-1.amazonaws.com/huggingface-pytorch-training:2.1-transformers4.36-gpu-py310-cu121-ubuntu20.04",
@@ -133,6 +162,8 @@ class TestLaunchTraining:
         call_kwargs = mock_sm_client.create_training_job.call_args[1]
         assert call_kwargs["TrainingJobName"] == job_name
         assert call_kwargs["HyperParameters"]["epochs"] == "3"
+        assert call_kwargs["HyperParameters"]["sagemaker_program"] == "train.py"
+        assert "sagemaker_submit_directory" in call_kwargs["HyperParameters"]
         assert call_kwargs["ResourceConfig"]["InstanceType"] == "ml.g5.xlarge"
 
     def test_polling_until_complete(self):
