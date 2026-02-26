@@ -44,9 +44,14 @@ class TestCleanText:
         assert "Foo bar baz" in result
 
 
-def _bedrock_response(qa_json: str) -> dict:
+def _bedrock_response(
+    qa_json: str, input_tokens: int = 500, output_tokens: int = 300
+) -> dict:
     """Build a Bedrock converse() response dict."""
-    return {"output": {"message": {"content": [{"text": qa_json}]}}}
+    return {
+        "output": {"message": {"content": [{"text": qa_json}]}},
+        "usage": {"inputTokens": input_tokens, "outputTokens": output_tokens},
+    }
 
 
 class TestGenerateQaPairs:
@@ -72,13 +77,15 @@ class TestGenerateQaPairs:
             "date": "2010-01-01",
             "text": "Today I want to talk about the economy. " * 10,
         }
-        result = generate_qa_pairs(speech)
+        pairs, usage = generate_qa_pairs(speech)
 
-        assert len(result) == 2
-        assert result[0]["instruction"] == "What about the economy?"
-        assert result[0]["output"] == "Look, the economy is improving."
-        assert result[0]["input"] == ""
-        assert result[1]["instruction"] == "What about healthcare?"
+        assert len(pairs) == 2
+        assert pairs[0]["instruction"] == "What about the economy?"
+        assert pairs[0]["output"] == "Look, the economy is improving."
+        assert pairs[0]["input"] == ""
+        assert pairs[1]["instruction"] == "What about healthcare?"
+        assert usage["inputTokens"] == 500
+        assert usage["outputTokens"] == 300
 
     @patch("backend.scraper.clean_and_format.bedrock")
     def test_generate_qa_pairs_with_code_block(self, mock_bedrock):
@@ -91,11 +98,11 @@ class TestGenerateQaPairs:
             "date": "2010-01-01",
             "text": "Some speech text here. " * 10,
         }
-        result = generate_qa_pairs(speech)
+        pairs, usage = generate_qa_pairs(speech)
 
-        assert len(result) == 1
-        assert result[0]["instruction"] == "Q?"
-        assert result[0]["output"] == "A."
+        assert len(pairs) == 1
+        assert pairs[0]["instruction"] == "Q?"
+        assert pairs[0]["output"] == "A."
 
     @patch("backend.scraper.clean_and_format.bedrock")
     def test_generate_qa_pairs_api_error(self, mock_bedrock):
@@ -112,8 +119,9 @@ class TestGenerateQaPairs:
             "date": "2010-01-01",
             "text": "Some speech text. " * 10,
         }
-        result = generate_qa_pairs(speech)
-        assert result == []
+        pairs, usage = generate_qa_pairs(speech)
+        assert pairs == []
+        assert usage == {}
 
     @patch("backend.scraper.clean_and_format.bedrock")
     def test_generate_qa_pairs_truncates_long_text(self, mock_bedrock):

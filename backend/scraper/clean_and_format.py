@@ -67,8 +67,11 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def generate_qa_pairs(speech: dict) -> list[dict]:
-    """Use AWS Bedrock to generate Q&A pairs from a speech."""
+def generate_qa_pairs(speech: dict) -> tuple[list[dict], dict]:
+    """Use AWS Bedrock to generate Q&A pairs from a speech.
+
+    Returns (pairs, usage) where usage has inputTokens/outputTokens.
+    """
     text = speech["text"]
     # Truncate to ~6000 chars to stay within reasonable token limits
     if len(text) > 6000:
@@ -88,6 +91,7 @@ def generate_qa_pairs(speech: dict) -> list[dict]:
             inferenceConfig={"maxTokens": 2000},
         )
 
+        usage = response.get("usage", {})
         content = response["output"]["message"]["content"][0]["text"].strip()
 
         # Extract JSON array from response
@@ -98,7 +102,7 @@ def generate_qa_pairs(speech: dict) -> list[dict]:
 
         pairs = json.loads(content)
         if not isinstance(pairs, list):
-            return []
+            return [], usage
 
         # Validate and format
         valid_pairs = []
@@ -111,11 +115,11 @@ def generate_qa_pairs(speech: dict) -> list[dict]:
                         "output": pair["output"],
                     }
                 )
-        return valid_pairs
+        return valid_pairs, usage
 
     except (json.JSONDecodeError, ClientError) as e:
         logger.warning("Failed to generate Q&A for '%s': %s", speech.get("title"), e)
-        return []
+        return [], {}
 
 
 def main() -> None:
@@ -138,11 +142,19 @@ def main() -> None:
     for s in speeches:
         s["text"] = clean_text(s["text"])
 
+    # Claude Sonnet 4 pricing (per 1M tokens)
+    INPUT_COST_PER_M = 3.0
+    OUTPUT_COST_PER_M = 15.0
+
     # Generate Q&A pairs
     all_pairs: list[dict] = []
+    total_input_tokens = 0
+    total_output_tokens = 0
     for i, speech in enumerate(speeches, 1):
-        pairs = generate_qa_pairs(speech)
+        pairs, usage = generate_qa_pairs(speech)
         all_pairs.extend(pairs)
+        total_input_tokens += usage.get("inputTokens", 0)
+        total_output_tokens += usage.get("outputTokens", 0)
         if pairs:
             logger.info(
                 "[%d/%d] Generated %d pairs for: %s",
@@ -158,8 +170,27 @@ def main() -> None:
                 len(speeches),
                 speech.get("title", "")[:60],
             )
+        if i % 100 == 0:
+            cost = (total_input_tokens * INPUT_COST_PER_M / 1e6) + (
+                total_output_tokens * OUTPUT_COST_PER_M / 1e6
+            )
+            logger.info(
+                "Token usage so far: %d input, %d output — est. cost $%.2f",
+                total_input_tokens,
+                total_output_tokens,
+                cost,
+            )
 
+    total_cost = (total_input_tokens * INPUT_COST_PER_M / 1e6) + (
+        total_output_tokens * OUTPUT_COST_PER_M / 1e6
+    )
     logger.info("Total Q&A pairs generated: %d", len(all_pairs))
+    logger.info(
+        "Total tokens: %d input, %d output — est. cost $%.2f",
+        total_input_tokens,
+        total_output_tokens,
+        total_cost,
+    )
 
     # Write output
     with open(OUTPUT_FILE, "w") as f:
