@@ -123,8 +123,8 @@ class TestLaunchTraining:
             "TrainingJobName": job_name,
             "HyperParameters": {
                 "epochs": "3",
-                "batch_size": "4",
-                "learning_rate": "0.0002",
+                "batch-size": "4",
+                "learning-rate": "0.0002",
                 "sagemaker_program": "train.py",
                 "sagemaker_submit_directory": code_uri,
                 "sagemaker_region": "us-east-1",

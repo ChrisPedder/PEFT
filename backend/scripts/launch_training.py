@@ -254,8 +254,8 @@ def main() -> None:
 
     hyperparameters = {
         "epochs": str(args.epochs),
-        "per_device_train_batch_size": str(args.batch_size),
-        "learning_rate": str(args.learning_rate),
+        "batch-size": str(args.batch_size),
+        "learning-rate": str(args.learning_rate),
         "sagemaker_program": "train.py",
         "sagemaker_submit_directory": code_uri,
         "sagemaker_region": region,
