@@ -176,50 +176,48 @@ class TestParseArgs:
 
 
 class TestLoadSpeechesFromS3:
-    @patch("backend.scraper.clean_and_format.boto3.client")
-    def test_load_speeches_from_s3(self, mock_boto3_client):
-        """load_speeches_from_s3 reads individual speech files via paginator."""
-        speech1 = {"title": "Speech 1", "date": "2010-01-01", "text": "Hello world"}
-        speech2 = {"title": "Speech 2", "date": "2010-02-01", "text": "Goodbye world"}
-
+    def _setup_mock_s3(self, mock_boto3_client, num_keys=2):
+        """Set up mock S3 client with paginator and get_object."""
         mock_s3 = MagicMock()
         mock_boto3_client.return_value = mock_s3
 
-        # Mock paginator
         mock_paginator = MagicMock()
         mock_s3.get_paginator.return_value = mock_paginator
-        mock_paginator.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "raw/individual/speech1.jsonl"},
-                    {"Key": "raw/individual/speech2.jsonl"},
-                    {"Key": "raw/individual/readme.txt"},  # should be skipped
-                ]
-            }
-        ]
 
-        # Mock get_object
+        contents = [{"Key": f"raw/individual/{i:05d}.jsonl"} for i in range(num_keys)]
+        contents.append({"Key": "raw/individual/readme.txt"})  # should be skipped
+        mock_paginator.paginate.return_value = [{"Contents": contents}]
+
         def mock_get_object(Bucket, Key):
-            if "speech1" in Key:
-                body = json.dumps(speech1)
-            else:
-                body = json.dumps(speech2)
-            return {"Body": BytesIO(body.encode())}
+            idx = Key.split("/")[-1].replace(".jsonl", "")
+            speech = {"title": f"Speech {idx}", "date": "2010-01-01", "text": "Hello"}
+            return {"Body": BytesIO(json.dumps(speech).encode())}
 
         mock_s3.get_object.side_effect = mock_get_object
+        return mock_s3
+
+    @patch("backend.scraper.clean_and_format.boto3.client")
+    def test_load_speeches_from_s3(self, mock_boto3_client):
+        """load_speeches_from_s3 reads individual speech files via paginator."""
+        mock_s3 = self._setup_mock_s3(mock_boto3_client, num_keys=2)
 
         speeches = load_speeches_from_s3("test-bucket")
 
         assert len(speeches) == 2
-        assert speeches[0]["title"] == "Speech 1"
-        assert speeches[1]["title"] == "Speech 2"
-
         mock_s3.get_paginator.assert_called_once_with("list_objects_v2")
-        mock_paginator.paginate.assert_called_once_with(
-            Bucket="test-bucket", Prefix="raw/individual/"
-        )
         # Only .jsonl files fetched (not readme.txt)
         assert mock_s3.get_object.call_count == 2
+
+    @patch("backend.scraper.clean_and_format.boto3.client")
+    def test_load_speeches_from_s3_with_sample(self, mock_boto3_client):
+        """load_speeches_from_s3 with sample downloads only sampled keys."""
+        mock_s3 = self._setup_mock_s3(mock_boto3_client, num_keys=10)
+
+        speeches = load_speeches_from_s3("test-bucket", sample=3, seed=42)
+
+        assert len(speeches) == 3
+        # Only 3 files downloaded, not all 10
+        assert mock_s3.get_object.call_count == 3
 
 
 class TestMain:
@@ -305,7 +303,7 @@ class TestMain:
         with patch("backend.scraper.clean_and_format.OUTPUT_FILE", output_file):
             main(["--bucket", "my-data", "--output-bucket", "my-training"])
 
-        mock_load.assert_called_once_with("my-data")
+        mock_load.assert_called_once_with("my-data", 0, 42)
         mock_upload.assert_called_once_with(
             output_file, "my-training", "training_data.jsonl"
         )

@@ -129,8 +129,12 @@ def generate_qa_pairs(speech: dict) -> tuple[list[dict], dict]:
         return [], {}
 
 
-def load_speeches_from_s3(bucket: str) -> list[dict]:
-    """Load individual speech files from s3://{bucket}/raw/individual/*.jsonl."""
+def load_speeches_from_s3(bucket: str, sample: int = 0, seed: int = 42) -> list[dict]:
+    """Load individual speech files from s3://{bucket}/raw/individual/*.jsonl.
+
+    When sample > 0, randomly select that many keys before downloading,
+    avoiding the cost of fetching all files.
+    """
     s3 = boto3.client("s3")
     prefix = "raw/individual/"
     keys: list[str] = []
@@ -142,6 +146,11 @@ def load_speeches_from_s3(bucket: str) -> list[dict]:
                 keys.append(obj["Key"])
 
     logger.info("Found %d speech files in s3://%s/%s", len(keys), bucket, prefix)
+
+    if sample > 0 and sample < len(keys):
+        random.seed(seed)
+        keys = random.sample(keys, sample)
+        logger.info("Sampled %d keys (seed=%d)", sample, seed)
 
     speeches: list[dict] = []
     for key in keys:
@@ -181,9 +190,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
-    # Load speeches
+    # Load speeches (sampling happens at the key level for S3)
     if args.bucket:
-        speeches = load_speeches_from_s3(args.bucket)
+        speeches = load_speeches_from_s3(args.bucket, args.sample, args.seed)
     else:
         if not INPUT_FILE.exists():
             logger.error("Input file not found: %s", INPUT_FILE)
@@ -197,13 +206,13 @@ def main(argv: list[str] | None = None) -> None:
                 if line:
                     speeches.append(json.loads(line))
 
-    logger.info("Loaded %d speeches", len(speeches))
+        # Sample after loading for local mode
+        if args.sample > 0 and args.sample < len(speeches):
+            random.seed(args.seed)
+            speeches = random.sample(speeches, args.sample)
+            logger.info("Sampled %d speeches (seed=%d)", args.sample, args.seed)
 
-    # Sample if requested
-    if args.sample > 0 and args.sample < len(speeches):
-        random.seed(args.seed)
-        speeches = random.sample(speeches, args.sample)
-        logger.info("Sampled %d speeches (seed=%d)", args.sample, args.seed)
+    logger.info("Processing %d speeches", len(speeches))
 
     # Clean texts
     for s in speeches:
