@@ -96,7 +96,7 @@ export class ScraperBatchStack extends cdk.Stack {
     // Scrape job definition
     const scrapeJobDef = new batch.EcsJobDefinition(this, "ScrapeJobDef", {
       jobDefinitionName: "peft-scrape-speeches",
-      timeout: cdk.Duration.hours(2),
+      timeout: cdk.Duration.hours(6),
       container: new batch.EcsFargateContainerDefinition(
         this,
         "ScrapeContainer",

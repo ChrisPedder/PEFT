@@ -37,7 +37,7 @@ describe("ScraperBatchStack", () => {
     template.hasResourceProperties("AWS::Batch::JobDefinition", {
       JobDefinitionName: "peft-scrape-speeches",
       Type: "container",
-      Timeout: { AttemptDurationSeconds: 7200 },
+      Timeout: { AttemptDurationSeconds: 21600 },
     });
   });
 
