@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 
 import torch
@@ -60,6 +61,20 @@ def main() -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
     tokenizer.save_pretrained(args.merged_output)
+
+    # Bedrock requires a recognized tokenizer_class (e.g. LlamaTokenizerFast).
+    # Recent transformers versions save "TokenizersBackend" which Bedrock rejects.
+    tok_config_path = os.path.join(args.merged_output, "tokenizer_config.json")
+    with open(tok_config_path) as f:
+        tok_config = json.load(f)
+    if tok_config.get("tokenizer_class") not in (
+        "LlamaTokenizer",
+        "LlamaTokenizerFast",
+    ):
+        tok_config["tokenizer_class"] = "LlamaTokenizerFast"
+        with open(tok_config_path, "w") as f:
+            json.dump(tok_config, f, indent=2)
+        print("Patched tokenizer_class to LlamaTokenizerFast for Bedrock compatibility")
 
     print("Merge complete!")
 
