@@ -21,13 +21,7 @@ export class InferenceStack extends cdk.Stack {
 
     const bedrockImportRole = new iam.Role(this, "BedrockImportRole", {
       roleName: "PeftBedrockImportRole",
-      assumedBy: new iam.ServicePrincipal("bedrock.amazonaws.com", {
-        conditions: {
-          StringEquals: {
-            "aws:SourceAccount": cdk.Aws.ACCOUNT_ID,
-          },
-        },
-      }),
+      assumedBy: new iam.ServicePrincipal("bedrock.amazonaws.com"),
     });
 
     // Allow Bedrock to read model artifacts from S3
