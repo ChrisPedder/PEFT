@@ -46,6 +46,7 @@ def main() -> None:
         BASE_MODEL,
         torch_dtype=torch.bfloat16,
         device_map="cpu",
+        low_cpu_mem_usage=True,
     )
 
     print(f"Loading adapter from: {args.adapter_path}")

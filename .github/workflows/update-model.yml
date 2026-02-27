@@ -7,6 +7,10 @@ on:
         description: "Bedrock imported model name"
         type: string
         default: "peft-obama"
+      training_job_name:
+        description: "SageMaker training job name (auto-detects latest if empty)"
+        type: string
+        default: ""
       role_arn:
         description: "IAM role ARN for Bedrock S3 access (auto-detected if empty)"
         type: string
@@ -17,7 +21,7 @@ permissions:
   contents: read
 
 jobs:
-  import-to-bedrock:
+  merge-and-import:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,13 +32,49 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        working-directory: backend
-        run: pip install boto3
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install boto3 transformers peft accelerate sentencepiece protobuf
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: eu-central-1
+
+      - name: Create swap space
+        run: |
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
+      - name: Download and extract adapter
+        env:
+          TRAINING_JOB_NAME: ${{ inputs.training_job_name }}
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="peft-model-artifacts-${ACCOUNT_ID}"
+
+          if [ -n "${TRAINING_JOB_NAME}" ]; then
+            JOB_NAME="${TRAINING_JOB_NAME}"
+          else
+            JOB_NAME=$(aws s3 ls "s3://${BUCKET}/" | grep "PRE" | awk '{print $2}' | tr -d '/' | sort | tail -1)
+          fi
+
+          echo "Using training job: ${JOB_NAME}"
+          aws s3 cp "s3://${BUCKET}/${JOB_NAME}/output/model.tar.gz" model.tar.gz
+          mkdir adapter
+          tar xzf model.tar.gz -C adapter
+          ls -la adapter/
+
+      - name: Merge adapter into base model
+        working-directory: backend
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          python training/merge_adapter.py \
+            --adapter-path ../adapter \
+            --merged-output ../merged_model \
+            --upload-bucket "peft-model-artifacts-${ACCOUNT_ID}"
 
       - name: Import model to Bedrock
         working-directory: backend
