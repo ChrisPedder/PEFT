@@ -1,6 +1,5 @@
 """Tests for backend/training/merge_adapter.py."""
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -77,13 +76,6 @@ class TestMergeWithoutUpload:
         mock_AutoTokenizer_local = MagicMock()
         mock_AutoTokenizer_local.from_pretrained.return_value = mock_tok
 
-        def _write_tok_config(output_dir):
-            os.makedirs(output_dir, exist_ok=True)
-            with open(os.path.join(output_dir, "tokenizer_config.json"), "w") as f:
-                json.dump({"tokenizer_class": "TokenizersBackend"}, f)
-
-        mock_tok.save_pretrained.side_effect = _write_tok_config
-
         with patch.dict(
             "sys.modules",
             {
@@ -121,7 +113,7 @@ class TestMergeWithoutUpload:
             str(merged_dir), safe_serialization=True
         )
         mock_AutoTokenizer_local.from_pretrained.assert_called_once_with(
-            "mistralai/Mistral-7B-Instruct-v0.3"
+            "mistralai/Mistral-7B-Instruct-v0.3", use_fast=False
         )
         mock_tok.save_pretrained.assert_called_once_with(str(merged_dir))
 
@@ -156,15 +148,9 @@ class TestS3Upload:
         mock_AutoTokenizer_s3 = MagicMock()
         mock_AutoTokenizer_s3.from_pretrained.return_value = mock_tok_m
 
-        # Make save_pretrained a no-op (files already exist) except tokenizer
-        # needs to write tokenizer_config.json for the patching step
+        # Make save_pretrained a no-op (files already exist)
         mock_merged_m.save_pretrained = MagicMock()
-
-        def _write_tok_config_s3(output_dir):
-            with open(os.path.join(output_dir, "tokenizer_config.json"), "w") as f:
-                json.dump({"tokenizer_class": "TokenizersBackend"}, f)
-
-        mock_tok_m.save_pretrained = MagicMock(side_effect=_write_tok_config_s3)
+        mock_tok_m.save_pretrained = MagicMock()
 
         with patch.dict(
             "sys.modules",
