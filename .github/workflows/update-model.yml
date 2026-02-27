@@ -3,8 +3,12 @@ name: Update Model
 on:
   workflow_dispatch:
     inputs:
-      model_data_url:
-        description: "S3 URI for model.tar.gz (auto-detect if empty)"
+      model_name:
+        description: "Bedrock imported model name"
+        type: string
+        default: "peft-obama"
+      role_arn:
+        description: "IAM role ARN for Bedrock S3 access (auto-detected if empty)"
         type: string
         default: ""
 
@@ -13,7 +17,7 @@ permissions:
   contents: read
 
 jobs:
-  update:
+  import-to-bedrock:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,18 +29,18 @@ jobs:
 
       - name: Install dependencies
         working-directory: backend
-        run: pip install -e "."
+        run: pip install boto3
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: eu-central-1
 
-      - name: Update endpoint
+      - name: Import model to Bedrock
         working-directory: backend
         run: |
-          if [ -n "${{ inputs.model_data_url }}" ]; then
-            python scripts/update_endpoint.py --model-data-url "${{ inputs.model_data_url }}"
-          else
-            python scripts/update_endpoint.py
+          ARGS="--model-name ${{ inputs.model_name }}"
+          if [ -n "${{ inputs.role_arn }}" ]; then
+            ARGS="$ARGS --role-arn ${{ inputs.role_arn }}"
           fi
+          python scripts/import_to_bedrock.py $ARGS
