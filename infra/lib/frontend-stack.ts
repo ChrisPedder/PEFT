@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
@@ -19,17 +20,33 @@ export class FrontendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: FrontendStackProps) {
     super(scope, id, props);
 
-    // S3 bucket for static frontend assets
-    const frontendBucket = new s3.Bucket(this, "FrontendBucket", {
-      bucketName: `peft-frontend-${cdk.Aws.ACCOUNT_ID}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-    });
+    // Import bucket created by StorageStack (avoids cyclic cross-stack reference)
+    const frontendBucket = s3.Bucket.fromBucketName(
+      this,
+      "FrontendBucket",
+      `peft-frontend-${cdk.Aws.ACCOUNT_ID}`
+    );
 
     // Origin Access Identity for CloudFront → S3
     const oai = new cloudfront.OriginAccessIdentity(this, "OAI");
-    frontendBucket.grantRead(oai);
+
+    // Grant OAI read access via bucket policy (can't use grantRead on imported bucket)
+    new s3.CfnBucketPolicy(this, "FrontendBucketPolicy", {
+      bucket: frontendBucket.bucketName,
+      policyDocument: new iam.PolicyDocument({
+        statements: [
+          new iam.PolicyStatement({
+            actions: ["s3:GetObject"],
+            resources: [`${frontendBucket.bucketArn}/*`],
+            principals: [
+              new iam.CanonicalUserPrincipal(
+                oai.cloudFrontOriginAccessIdentityS3CanonicalUserId
+              ),
+            ],
+          }),
+        ],
+      }),
+    });
 
     // Parse the Lambda Function URL domain
     const lambdaUrlDomain = cdk.Fn.select(
