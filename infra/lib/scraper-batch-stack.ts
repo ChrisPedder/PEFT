@@ -81,7 +81,9 @@ export class ScraperBatchStack extends cdk.Stack {
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: ["bedrock:Converse", "bedrock:InvokeModel"],
-        resources: ["*"],
+        resources: [
+          `arn:aws:bedrock:${cdk.Aws.REGION}::foundation-model/anthropic.claude-*`,
+        ],
       })
     );
 

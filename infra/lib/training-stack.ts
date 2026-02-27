@@ -20,33 +20,57 @@ export class TrainingStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: TrainingStackProps) {
     super(scope, id, props);
 
-    // IAM role for SageMaker training jobs
+    // IAM role for SageMaker training jobs (least-privilege, no managed policy)
     this.trainingRole = new iam.Role(this, "TrainingRole", {
       roleName: "PeftTrainingRole",
       assumedBy: new iam.ServicePrincipal("sagemaker.amazonaws.com"),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSageMakerFullAccess"),
-      ],
     });
+
+    // SageMaker training actions only
+    this.trainingRole.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          "sagemaker:CreateTrainingJob",
+          "sagemaker:DescribeTrainingJob",
+          "sagemaker:StopTrainingJob",
+          "sagemaker:AddTags",
+          "sagemaker:ListTags",
+        ],
+        resources: [
+          `arn:aws:sagemaker:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:training-job/peft-*`,
+        ],
+      })
+    );
 
     // Grant access to training data and model buckets
     props.trainingDataBucket.grantRead(this.trainingRole);
     props.modelBucket.grantReadWrite(this.trainingRole);
 
-    // Allow pulling HuggingFace containers from ECR
+    // ECR: GetAuthorizationToken requires resource "*"
     this.trainingRole.addToPolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
-        actions: [
-          "ecr:GetAuthorizationToken",
-          "ecr:BatchGetImage",
-          "ecr:GetDownloadUrlForLayer",
-        ],
+        actions: ["ecr:GetAuthorizationToken"],
         resources: ["*"],
       })
     );
 
-    // Allow CloudWatch logging
+    // ECR: Pull actions scoped to HuggingFace DLC repos
+    this.trainingRole.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+        ],
+        resources: [
+          `arn:aws:ecr:${cdk.Aws.REGION}:763104351884:repository/huggingface-pytorch-training`,
+        ],
+      })
+    );
+
+    // CloudWatch logging scoped to current region and account
     this.trainingRole.addToPolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
@@ -55,7 +79,9 @@ export class TrainingStack extends cdk.Stack {
           "logs:CreateLogStream",
           "logs:PutLogEvents",
         ],
-        resources: ["arn:aws:logs:*:*:log-group:/aws/sagemaker/*"],
+        resources: [
+          `arn:aws:logs:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:log-group:/aws/sagemaker/*`,
+        ],
       })
     );
 

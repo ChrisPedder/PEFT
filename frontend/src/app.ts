@@ -3,6 +3,9 @@ import {
   initAuth,
   signIn,
   completeNewPassword,
+  verifyTotp,
+  associateSoftwareToken,
+  verifySoftwareToken,
   getIdToken,
   isAuthenticated,
   signOut,
@@ -28,6 +31,19 @@ const newPasswordInput = document.getElementById(
 const newPasswordBtn = document.getElementById(
   "new-password-btn"
 ) as HTMLButtonElement;
+const totpForm = document.getElementById("totp-form") as HTMLFormElement;
+const totpInput = document.getElementById("totp-input") as HTMLInputElement;
+const totpBtn = document.getElementById("totp-btn") as HTMLButtonElement;
+const mfaSetupForm = document.getElementById(
+  "mfa-setup-form"
+) as HTMLFormElement;
+const mfaSetupSecret = document.getElementById("mfa-setup-secret")!;
+const mfaSetupInput = document.getElementById(
+  "mfa-setup-input"
+) as HTMLInputElement;
+const mfaSetupBtn = document.getElementById(
+  "mfa-setup-btn"
+) as HTMLButtonElement;
 const signOutBtn = document.getElementById("sign-out-btn") as HTMLButtonElement;
 
 // --- Chat UI elements ---
@@ -47,6 +63,8 @@ function showLogin() {
   chatSection.classList.add("hidden");
   loginForm.classList.remove("hidden");
   newPasswordForm.classList.add("hidden");
+  totpForm.classList.add("hidden");
+  mfaSetupForm.classList.add("hidden");
   loginError.classList.add("hidden");
   loginEmail.value = "";
   loginPassword.value = "";
@@ -200,6 +218,22 @@ loginForm.addEventListener("submit", async (e) => {
       pendingCognitoUser = result.cognitoUser;
       loginForm.classList.add("hidden");
       newPasswordForm.classList.remove("hidden");
+    } else if (result.challengeName === "SOFTWARE_TOKEN_MFA") {
+      pendingCognitoUser = result.cognitoUser;
+      loginForm.classList.add("hidden");
+      totpForm.classList.remove("hidden");
+    } else if (result.challengeName === "MFA_SETUP") {
+      pendingCognitoUser = result.cognitoUser;
+      loginForm.classList.add("hidden");
+      try {
+        const secret = await associateSoftwareToken(result.cognitoUser);
+        mfaSetupSecret.textContent = secret;
+        mfaSetupForm.classList.remove("hidden");
+      } catch (setupErr) {
+        const msg =
+          setupErr instanceof Error ? setupErr.message : "MFA setup failed";
+        showLoginError(msg);
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Sign-in failed";
@@ -224,6 +258,44 @@ newPasswordForm.addEventListener("submit", async (e) => {
     const msg = err instanceof Error ? err.message : "Password change failed";
     showLoginError(msg);
     newPasswordBtn.disabled = false;
+  }
+});
+
+totpForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  loginError.classList.add("hidden");
+  totpBtn.disabled = true;
+
+  const code = totpInput.value.trim();
+
+  try {
+    if (!pendingCognitoUser) throw new Error("No pending user");
+    await verifyTotp(pendingCognitoUser, code);
+    pendingCognitoUser = null;
+    showChat();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "TOTP verification failed";
+    showLoginError(msg);
+    totpBtn.disabled = false;
+  }
+});
+
+mfaSetupForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  loginError.classList.add("hidden");
+  mfaSetupBtn.disabled = true;
+
+  const code = mfaSetupInput.value.trim();
+
+  try {
+    if (!pendingCognitoUser) throw new Error("No pending user");
+    await verifySoftwareToken(pendingCognitoUser, code);
+    pendingCognitoUser = null;
+    showChat();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "MFA setup verification failed";
+    showLoginError(msg);
+    mfaSetupBtn.disabled = false;
   }
 });
 

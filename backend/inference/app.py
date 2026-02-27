@@ -2,40 +2,96 @@
 FastAPI Lambda proxy that forwards requests to a Bedrock imported model.
 
 Runs inside Lambda via Lambda Web Adapter (LWA) for HTTP compatibility.
-Supports SSE streaming from Bedrock's converse_stream API.
+Supports SSE streaming via invoke_model_with_response_stream.
 """
 
 import json
+import logging
 import os
+import re
 import time
 
 import boto3
+from botocore.config import Config
 import requests as http_requests
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from jose import JWTError, jwt
-from pydantic import BaseModel
+import jwt
+from jwt.exceptions import PyJWTError
+from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="PEFT Obama Q&A API")
 
+RATE_LIMIT = os.environ.get("RATE_LIMIT", "10/minute")
+
+
+def _get_user_id(request: Request) -> str:
+    """Extract user sub from JWT for per-user rate limiting, fall back to IP."""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            claims = jwt.decode(auth[7:], options={"verify_signature": False})
+            sub = claims.get("sub")
+            if sub:
+                return sub
+        except Exception:
+            pass
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=_get_user_id)
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    from fastapi.responses import JSONResponse
+
+    retry_after = exc.detail if hasattr(exc, "detail") else "60"
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later."},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+CORS_ALLOWED_ORIGIN = os.environ.get("CORS_ALLOWED_ORIGIN", "*")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[CORS_ALLOWED_ORIGIN],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "")
 COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
+COGNITO_CLIENT_ID = os.environ.get("COGNITO_CLIENT_ID", "")
 COGNITO_REGION = os.environ.get("COGNITO_REGION", "eu-central-1")
 
-bedrock_runtime = boto3.client("bedrock-runtime")
+bedrock_runtime = boto3.client(
+    "bedrock-runtime",
+    config=Config(retries={"total_max_attempts": 10, "mode": "standard"}),
+)
 
 # JWKS cache
 _jwks_cache: dict | None = None
 _jwks_cache_time: float = 0
 _JWKS_CACHE_TTL = 3600  # 1 hour
+
+# Mistral control tokens to strip from user input
+_CONTROL_TOKENS = re.compile(r"\[/?INST\]|</?s>", re.IGNORECASE)
+
+
+def _sanitise_prompt(text: str) -> str:
+    """Strip Mistral control sequences from user input."""
+    return _CONTROL_TOKENS.sub("", text).strip()
 
 
 def _get_jwks() -> dict:
@@ -71,59 +127,95 @@ def get_current_user(request: Request) -> dict:
             raise HTTPException(status_code=401, detail="Invalid token header")
 
         jwks = _get_jwks()
-        key = None
+        key_data = None
         for k in jwks.get("keys", []):
             if k["kid"] == kid:
-                key = k
+                key_data = k
                 break
-        if not key:
+        if not key_data:
             raise HTTPException(status_code=401, detail="Token signing key not found")
+
+        # Convert JWK dict to an RSA public key object for PyJWT
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(key_data)
 
         issuer = (
             f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}"
         )
+        decode_options: dict = {}
+        decode_kwargs: dict = {
+            "algorithms": ["RS256"],
+            "issuer": issuer,
+        }
+        if COGNITO_CLIENT_ID:
+            decode_kwargs["audience"] = COGNITO_CLIENT_ID
+        else:
+            decode_options["verify_aud"] = False
+
         claims = jwt.decode(
             token,
-            key,
-            algorithms=["RS256"],
-            issuer=issuer,
-            options={"verify_aud": False},
+            public_key,
+            options=decode_options,
+            **decode_kwargs,
         )
 
         if claims.get("token_use") != "id":
             raise HTTPException(status_code=401, detail="Invalid token_use")
 
         return claims
-    except JWTError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    except PyJWTError as e:
+        logger.warning("JWT validation failed: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 class AskRequest(BaseModel):
-    question: str
-    max_tokens: int = 512
-    temperature: float = 0.7
+    question: str = Field(..., min_length=1, max_length=4000)
+    max_tokens: int = Field(default=512, ge=1, le=4096)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "model_id": MODEL_ID}
+    return {"status": "ok"}
 
 
 @app.post("/api/ask")
-async def ask(req: AskRequest, _user: dict = Depends(get_current_user)):
+@limiter.limit(RATE_LIMIT)
+async def ask(
+    request: Request, req: AskRequest, _user: dict = Depends(get_current_user)
+):
     """
     Forward a question to the Bedrock imported model and stream the response.
-    Uses converse_stream for token-by-token SSE.
+    Uses invoke_model_with_response_stream with Mistral chat template.
     """
+    clean_question = _sanitise_prompt(req.question)
+    if not clean_question:
+        raise HTTPException(
+            status_code=400, detail="Question is empty after sanitisation"
+        )
+
+    # Mistral instruct chat template
+    prompt = f"<s>[INST] {clean_question} [/INST]"
+
+    body = json.dumps(
+        {
+            "prompt": prompt,
+            "max_tokens": req.max_tokens,
+            "temperature": req.temperature,
+            "top_p": 0.9,
+        }
+    )
+
     try:
-        response = bedrock_runtime.converse_stream(
+        response = bedrock_runtime.invoke_model_with_response_stream(
             modelId=MODEL_ID,
-            messages=[{"role": "user", "content": [{"text": req.question}]}],
-            inferenceConfig={
-                "maxTokens": req.max_tokens,
-                "temperature": req.temperature,
-                "topP": 0.9,
-            },
+            body=body,
+            contentType="application/json",
+            accept="application/json",
+        )
+    except bedrock_runtime.exceptions.ModelNotReadyException:
+        raise HTTPException(
+            status_code=503,
+            detail="Model is warming up. Please try again in a minute.",
         )
     except bedrock_runtime.exceptions.ThrottlingException:
         raise HTTPException(
@@ -131,18 +223,24 @@ async def ask(req: AskRequest, _user: dict = Depends(get_current_user)):
             detail="Request throttled. Please try again shortly.",
         )
     except Exception as e:
-        error_msg = str(e)
-        raise HTTPException(status_code=500, detail=f"Bedrock error: {error_msg}")
+        logger.error("Bedrock invocation failed: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred. Please try again later.",
+        )
 
     def stream_response():
-        """Yield SSE events from Bedrock converse_stream response."""
-        event_stream = response["stream"]
+        """Yield SSE events from Bedrock streaming response."""
+        event_stream = response["body"]
         for event in event_stream:
-            if "contentBlockDelta" in event:
-                delta = event["contentBlockDelta"].get("delta", {})
-                text = delta.get("text", "")
-                if text:
-                    yield f"data: {json.dumps({'token': text})}\n\n"
+            chunk = event.get("chunk")
+            if chunk:
+                payload = json.loads(chunk["bytes"].decode("utf-8"))
+                choices = payload.get("choices", [])
+                if choices:
+                    text = choices[0].get("text", "")
+                    if text:
+                        yield f"data: {json.dumps({'token': text})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

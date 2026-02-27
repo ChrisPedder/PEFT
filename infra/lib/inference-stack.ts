@@ -9,6 +9,7 @@ import * as path from "path";
 interface InferenceStackProps extends cdk.StackProps {
   modelBucket: s3.IBucket;
   cognitoUserPoolId: string;
+  cognitoClientId: string;
 }
 
 export class InferenceStack extends cdk.Stack {
@@ -58,6 +59,7 @@ export class InferenceStack extends cdk.Stack {
       "LambdaImage",
       {
         directory: path.join(__dirname, "../../backend/inference"),
+        platform: ecr_assets.Platform.LINUX_AMD64,
       }
     );
 
@@ -76,27 +78,21 @@ export class InferenceStack extends cdk.Stack {
           BEDROCK_MODEL_ID: "", // Set after running import_to_bedrock.py
           AWS_LWA_INVOKE_MODE: "RESPONSE_STREAM",
           COGNITO_USER_POOL_ID: props.cognitoUserPoolId,
+          COGNITO_CLIENT_ID: props.cognitoClientId,
           COGNITO_REGION: cdk.Aws.REGION,
         },
       }
     );
 
     // Lambda Function URL (streaming mode for SSE passthrough)
+    // AWS_IAM auth type — only CloudFront OAC can invoke this URL
     this.lambdaFunctionUrl = proxyFunction.addFunctionUrl({
-      authType: lambda.FunctionUrlAuthType.NONE,
+      authType: lambda.FunctionUrlAuthType.AWS_IAM,
       invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
-      cors: {
-        allowedOrigins: ["*"],
-        allowedMethods: [lambda.HttpMethod.POST, lambda.HttpMethod.GET],
-        allowedHeaders: ["content-type", "authorization"],
-      },
     });
 
     new cdk.CfnOutput(this, "BedrockImportRoleArn", {
       value: bedrockImportRole.roleArn,
-    });
-    new cdk.CfnOutput(this, "LambdaFunctionUrl", {
-      value: this.lambdaFunctionUrl.url,
     });
   }
 }

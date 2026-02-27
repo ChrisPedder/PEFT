@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { Template, Match } from "aws-cdk-lib/assertions";
 import { StorageStack } from "../lib/storage-stack";
 
 describe("StorageStack", () => {
@@ -15,43 +15,25 @@ describe("StorageStack", () => {
     template.resourceCountIs("AWS::S3::Bucket", 4);
   });
 
-  test("creates IAM role with SageMaker service principal", () => {
-    template.hasResourceProperties("AWS::IAM::Role", {
-      RoleName: "PeftSageMakerExecutionRole",
-      AssumeRolePolicyDocument: {
-        Statement: [
-          {
-            Action: "sts:AssumeRole",
-            Effect: "Allow",
-            Principal: {
-              Service: "sagemaker.amazonaws.com",
-            },
-          },
-        ],
-      },
-    });
-  });
-
   test("has expected CfnOutputs", () => {
     template.hasOutput("DataBucketName", {});
     template.hasOutput("TrainingDataBucketName", {});
     template.hasOutput("ModelBucketName", {});
     template.hasOutput("FrontendBucketName", {});
-    template.hasOutput("SageMakerRoleArn", {});
   });
 
   test("data bucket has lifecycle rule for incomplete uploads (7 days)", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       LifecycleConfiguration: {
-        Rules: [
-          {
+        Rules: Match.arrayWith([
+          Match.objectLike({
             AbortIncompleteMultipartUpload: {
               DaysAfterInitiation: 7,
             },
             Id: "CleanupIncompleteUploads",
             Status: "Enabled",
-          },
-        ],
+          }),
+        ]),
       },
     });
   });

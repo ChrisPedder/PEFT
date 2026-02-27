@@ -13,11 +13,13 @@ export class AuthStack extends cdk.Stack {
       userPoolName: "peft-user-pool",
       selfSignUpEnabled: false,
       signInAliases: { email: true },
+      mfa: cognito.Mfa.OPTIONAL,
+      mfaSecondFactor: { sms: false, otp: true },
       passwordPolicy: {
-        minLength: 8,
+        minLength: 12,
         requireUppercase: true,
         requireDigits: true,
-        requireSymbols: false,
+        requireSymbols: true,
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -28,8 +30,11 @@ export class AuthStack extends cdk.Stack {
       generateSecret: false,
       authFlows: {
         userSrp: true,
-        userPassword: true,
       },
+      authSessionValidity: cdk.Duration.minutes(3),
+      accessTokenValidity: cdk.Duration.hours(1),
+      idTokenValidity: cdk.Duration.hours(1),
+      refreshTokenValidity: cdk.Duration.days(7),
     });
 
     this.userPoolClientId = appClient.userPoolClientId;

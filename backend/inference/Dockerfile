@@ -12,6 +12,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY app.py .
 
+# Run as non-root user
+RUN adduser --disabled-password --gecos '' --home /app appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
 # Lambda Web Adapter listens on port 8080 by default
 ENV PORT=8080
 

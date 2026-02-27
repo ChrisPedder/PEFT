@@ -21,6 +21,7 @@ export function initAuth(config: AuthConfig): void {
   userPool = new CognitoUserPool({
     UserPoolId: config.cognitoUserPoolId,
     ClientId: config.cognitoClientId,
+    Storage: window.sessionStorage,
   });
 }
 
@@ -58,6 +59,73 @@ export function signIn(
       },
       newPasswordRequired() {
         resolve({ challengeName: "NEW_PASSWORD_REQUIRED", cognitoUser });
+      },
+      totpRequired() {
+        resolve({ challengeName: "SOFTWARE_TOKEN_MFA", cognitoUser });
+      },
+      mfaSetup() {
+        resolve({ challengeName: "MFA_SETUP", cognitoUser });
+      },
+    });
+  });
+}
+
+/**
+ * Send a TOTP code during the SOFTWARE_TOKEN_MFA challenge.
+ */
+export function verifyTotp(
+  cognitoUser: CognitoUser,
+  code: string
+): Promise<CognitoUserSession> {
+  return new Promise((resolve, reject) => {
+    cognitoUser.sendMFACode(
+      code,
+      {
+        onSuccess(session: CognitoUserSession) {
+          resolve(session);
+        },
+        onFailure(err: Error) {
+          reject(err);
+        },
+      },
+      "SOFTWARE_TOKEN_MFA"
+    );
+  });
+}
+
+/**
+ * Associate a TOTP authenticator app during MFA_SETUP challenge.
+ * Returns the secret code to display as a QR code or text.
+ */
+export function associateSoftwareToken(
+  cognitoUser: CognitoUser
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    cognitoUser.associateSoftwareToken({
+      associateSecretCode(secretCode: string) {
+        resolve(secretCode);
+      },
+      onFailure(err: Error) {
+        reject(err);
+      },
+    });
+  });
+}
+
+/**
+ * Verify the first TOTP code after associating a software token.
+ */
+export function verifySoftwareToken(
+  cognitoUser: CognitoUser,
+  code: string
+): Promise<CognitoUserSession> {
+  return new Promise((resolve, reject) => {
+    cognitoUser.verifySoftwareToken(code, "TOTP Device", {
+      onSuccess(session: CognitoUserSession) {
+        resolve(session);
+      },
+      onFailure(err: Error) {
+        reject(err);
       },
     });
   });

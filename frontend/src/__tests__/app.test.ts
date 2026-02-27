@@ -4,6 +4,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 const mockInitAuth = vi.fn();
 const mockSignIn = vi.fn();
 const mockCompleteNewPassword = vi.fn();
+const mockVerifyTotp = vi.fn();
+const mockAssociateSoftwareToken = vi.fn();
+const mockVerifySoftwareToken = vi.fn();
 const mockGetIdToken = vi.fn();
 const mockIsAuthenticated = vi.fn();
 const mockSignOut = vi.fn();
@@ -12,6 +15,9 @@ vi.mock("../auth", () => ({
   initAuth: (...args: unknown[]) => mockInitAuth(...args),
   signIn: (...args: unknown[]) => mockSignIn(...args),
   completeNewPassword: (...args: unknown[]) => mockCompleteNewPassword(...args),
+  verifyTotp: (...args: unknown[]) => mockVerifyTotp(...args),
+  associateSoftwareToken: (...args: unknown[]) => mockAssociateSoftwareToken(...args),
+  verifySoftwareToken: (...args: unknown[]) => mockVerifySoftwareToken(...args),
   getIdToken: () => mockGetIdToken(),
   isAuthenticated: () => mockIsAuthenticated(),
   signOut: () => mockSignOut(),
@@ -66,6 +72,15 @@ function setupDOM() {
       <form id="new-password-form" class="hidden">
         <input type="password" id="new-password-input" />
         <button type="submit" id="new-password-btn">Set Password</button>
+      </form>
+      <form id="totp-form" class="hidden">
+        <input type="text" id="totp-input" />
+        <button type="submit" id="totp-btn">Verify</button>
+      </form>
+      <form id="mfa-setup-form" class="hidden">
+        <code id="mfa-setup-secret"></code>
+        <input type="text" id="mfa-setup-input" />
+        <button type="submit" id="mfa-setup-btn">Verify &amp; Enable MFA</button>
       </form>
       <div id="login-error" class="hidden"></div>
     </section>
@@ -223,6 +238,127 @@ describe("app.ts integration", () => {
       const newPasswordForm = document.getElementById("new-password-form")!;
       expect(newPasswordForm.classList.contains("hidden")).toBe(false);
       expect(loginForm.classList.contains("hidden")).toBe(true);
+    });
+  });
+
+  it("shows TOTP form on SOFTWARE_TOKEN_MFA challenge", async () => {
+    mockIsAuthenticated.mockResolvedValue(false);
+    mockSignIn.mockResolvedValue({
+      challengeName: "SOFTWARE_TOKEN_MFA",
+      cognitoUser: {},
+    });
+    await loadApp();
+
+    const emailInput = document.getElementById("login-email") as HTMLInputElement;
+    const passwordInput = document.getElementById("login-password") as HTMLInputElement;
+    const loginForm = document.getElementById("login-form") as HTMLFormElement;
+
+    emailInput.value = "user@test.com";
+    passwordInput.value = "password123";
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      const totpFormEl = document.getElementById("totp-form")!;
+      expect(totpFormEl.classList.contains("hidden")).toBe(false);
+      expect(loginForm.classList.contains("hidden")).toBe(true);
+    });
+  });
+
+  it("TOTP form submission calls verifyTotp and shows chat", async () => {
+    mockIsAuthenticated.mockResolvedValue(false);
+    mockSignIn.mockResolvedValue({
+      challengeName: "SOFTWARE_TOKEN_MFA",
+      cognitoUser: { username: "testuser" },
+    });
+    mockVerifyTotp.mockResolvedValue({});
+    await loadApp();
+
+    // Trigger login to get TOTP form
+    const emailInput = document.getElementById("login-email") as HTMLInputElement;
+    const passwordInput = document.getElementById("login-password") as HTMLInputElement;
+    const loginForm = document.getElementById("login-form") as HTMLFormElement;
+
+    emailInput.value = "user@test.com";
+    passwordInput.value = "password123";
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      const totpFormEl = document.getElementById("totp-form")!;
+      expect(totpFormEl.classList.contains("hidden")).toBe(false);
+    });
+
+    const totpInput = document.getElementById("totp-input") as HTMLInputElement;
+    const totpFormEl = document.getElementById("totp-form") as HTMLFormElement;
+
+    totpInput.value = "123456";
+    totpFormEl.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(mockVerifyTotp).toHaveBeenCalled();
+      const chatSection = document.getElementById("chat-section")!;
+      expect(chatSection.classList.contains("hidden")).toBe(false);
+    });
+  });
+
+  it("shows MFA setup form on MFA_SETUP challenge", async () => {
+    mockIsAuthenticated.mockResolvedValue(false);
+    mockSignIn.mockResolvedValue({
+      challengeName: "MFA_SETUP",
+      cognitoUser: {},
+    });
+    mockAssociateSoftwareToken.mockResolvedValue("JBSWY3DPEHPK3PXP");
+    await loadApp();
+
+    const emailInput = document.getElementById("login-email") as HTMLInputElement;
+    const passwordInput = document.getElementById("login-password") as HTMLInputElement;
+    const loginForm = document.getElementById("login-form") as HTMLFormElement;
+
+    emailInput.value = "user@test.com";
+    passwordInput.value = "password123";
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      const mfaSetupFormEl = document.getElementById("mfa-setup-form")!;
+      expect(mfaSetupFormEl.classList.contains("hidden")).toBe(false);
+      const secretEl = document.getElementById("mfa-setup-secret")!;
+      expect(secretEl.textContent).toBe("JBSWY3DPEHPK3PXP");
+    });
+  });
+
+  it("MFA setup form verification shows chat on success", async () => {
+    mockIsAuthenticated.mockResolvedValue(false);
+    mockSignIn.mockResolvedValue({
+      challengeName: "MFA_SETUP",
+      cognitoUser: { username: "testuser" },
+    });
+    mockAssociateSoftwareToken.mockResolvedValue("SECRET");
+    mockVerifySoftwareToken.mockResolvedValue({});
+    await loadApp();
+
+    // Trigger login to get MFA setup form
+    const emailInput = document.getElementById("login-email") as HTMLInputElement;
+    const passwordInput = document.getElementById("login-password") as HTMLInputElement;
+    const loginForm = document.getElementById("login-form") as HTMLFormElement;
+
+    emailInput.value = "user@test.com";
+    passwordInput.value = "password123";
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      const mfaSetupFormEl = document.getElementById("mfa-setup-form")!;
+      expect(mfaSetupFormEl.classList.contains("hidden")).toBe(false);
+    });
+
+    const mfaSetupInput = document.getElementById("mfa-setup-input") as HTMLInputElement;
+    const mfaSetupFormEl = document.getElementById("mfa-setup-form") as HTMLFormElement;
+
+    mfaSetupInput.value = "123456";
+    mfaSetupFormEl.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(mockVerifySoftwareToken).toHaveBeenCalled();
+      const chatSection = document.getElementById("chat-section")!;
+      expect(chatSection.classList.contains("hidden")).toBe(false);
     });
   });
 

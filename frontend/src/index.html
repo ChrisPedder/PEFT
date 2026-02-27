@@ -47,6 +47,40 @@
           <button type="submit" id="new-password-btn">Set Password</button>
         </form>
 
+        <form id="totp-form" class="hidden">
+          <p class="form-hint">Enter the code from your authenticator app.</p>
+          <input
+            type="text"
+            id="totp-input"
+            placeholder="6-digit code"
+            autocomplete="one-time-code"
+            inputmode="numeric"
+            pattern="[0-9]{6}"
+            maxlength="6"
+            required
+          />
+          <button type="submit" id="totp-btn">Verify</button>
+        </form>
+
+        <form id="mfa-setup-form" class="hidden">
+          <p class="form-hint">
+            Set up your authenticator app. Enter this secret key or scan the QR
+            code, then enter the 6-digit code to verify.
+          </p>
+          <code id="mfa-setup-secret"></code>
+          <input
+            type="text"
+            id="mfa-setup-input"
+            placeholder="6-digit code"
+            autocomplete="one-time-code"
+            inputmode="numeric"
+            pattern="[0-9]{6}"
+            maxlength="6"
+            required
+          />
+          <button type="submit" id="mfa-setup-btn">Verify &amp; Enable MFA</button>
+        </form>
+
         <div id="login-error" class="hidden"></div>
       </section>
 

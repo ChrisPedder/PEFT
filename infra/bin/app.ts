@@ -7,6 +7,7 @@ import { AuthStack } from "../lib/auth-stack";
 import { InferenceStack } from "../lib/inference-stack";
 import { FrontendStack } from "../lib/frontend-stack";
 import { ScraperBatchStack } from "../lib/scraper-batch-stack";
+import { CicdRolesStack } from "../lib/cicd-roles-stack";
 
 const app = new cdk.App();
 
@@ -33,6 +34,7 @@ const inferenceStack = new InferenceStack(app, "PeftInferenceStack", {
   env,
   modelBucket: storageStack.modelBucket,
   cognitoUserPoolId: authStack.userPool.userPoolId,
+  cognitoClientId: authStack.userPoolClientId,
 });
 
 // Phase 5: Frontend (CloudFront + S3)
@@ -48,6 +50,12 @@ const scraperBatchStack = new ScraperBatchStack(app, "PeftScraperBatchStack", {
   env,
   dataBucket: storageStack.dataBucket,
   trainingDataBucket: storageStack.trainingDataBucket,
+});
+
+// CI/CD IAM roles (GitHub OIDC)
+const cicdRolesStack = new CicdRolesStack(app, "PeftCicdRolesStack", {
+  env,
+  githubRepo: "ChrisPedder/PEFT",
 });
 
 app.synth();

@@ -48,10 +48,40 @@ export class FrontendStack extends cdk.Stack {
       }),
     });
 
-    // Parse the Lambda Function URL domain
-    const lambdaUrlDomain = cdk.Fn.select(
-      2,
-      cdk.Fn.split("/", props.lambdaFunctionUrl.url)
+    // Lambda Function URL origin with OAC (SigV4 signed requests)
+    const lambdaOrigin = origins.FunctionUrlOrigin.withOriginAccessControl(
+      props.lambdaFunctionUrl
+    );
+
+    // Security response headers
+    const responseHeadersPolicy = new cloudfront.ResponseHeadersPolicy(
+      this,
+      "SecurityHeaders",
+      {
+        securityHeadersBehavior: {
+          contentSecurityPolicy: {
+            contentSecurityPolicy:
+              "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cognito-idp.eu-central-1.amazonaws.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+            override: true,
+          },
+          contentTypeOptions: { override: true },
+          frameOptions: {
+            frameOption: cloudfront.HeadersFrameOption.DENY,
+            override: true,
+          },
+          referrerPolicy: {
+            referrerPolicy:
+              cloudfront.HeadersReferrerPolicy
+                .STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+            override: true,
+          },
+          strictTransportSecurity: {
+            accessControlMaxAge: cdk.Duration.days(365),
+            includeSubdomains: true,
+            override: true,
+          },
+        },
+      }
     );
 
     // CloudFront distribution
@@ -64,12 +94,11 @@ export class FrontendStack extends cdk.Stack {
         viewerProtocolPolicy:
           cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy,
       },
       additionalBehaviors: {
         "/api/*": {
-          origin: new origins.HttpOrigin(lambdaUrlDomain, {
-            protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
-          }),
+          origin: lambdaOrigin,
           viewerProtocolPolicy:
             cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
@@ -99,6 +128,7 @@ export class FrontendStack extends cdk.Stack {
     });
 
     // Deploy runtime auth config (fetched by frontend at load time)
+    // prune: false so this deployment doesn't delete assets uploaded by DeployFrontend
     new s3deploy.BucketDeployment(this, "DeployConfig", {
       sources: [
         s3deploy.Source.jsonData("config.json", {
@@ -110,6 +140,7 @@ export class FrontendStack extends cdk.Stack {
       destinationBucket: frontendBucket,
       distribution: this.distribution,
       distributionPaths: ["/config.json"],
+      prune: false,
     });
 
     new cdk.CfnOutput(this, "DistributionUrl", {

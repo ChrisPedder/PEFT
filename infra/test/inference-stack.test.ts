@@ -12,6 +12,7 @@ describe("InferenceStack", () => {
     const stack = new InferenceStack(app, "TestInference", {
       modelBucket: storageStack.modelBucket,
       cognitoUserPoolId: "us-east-1_testpool",
+      cognitoClientId: "test-client-id",
     });
     template = Template.fromStack(stack);
   });
@@ -55,8 +56,13 @@ describe("InferenceStack", () => {
     });
   });
 
-  test("has CfnOutputs for BedrockImportRoleArn and LambdaFunctionUrl", () => {
+  test("Lambda Function URL uses AWS_IAM auth type", () => {
+    template.hasResourceProperties("AWS::Lambda::Url", {
+      AuthType: "AWS_IAM",
+    });
+  });
+
+  test("has CfnOutput for BedrockImportRoleArn", () => {
     template.hasOutput("BedrockImportRoleArn", {});
-    template.hasOutput("LambdaFunctionUrl", {});
   });
 });

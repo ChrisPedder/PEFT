@@ -11,14 +11,17 @@ describe("AuthStack", () => {
     template = Template.fromStack(stack);
   });
 
-  test("creates Cognito User Pool with self-signup disabled", () => {
+  test("creates Cognito User Pool with strengthened password policy", () => {
     template.hasResourceProperties("AWS::Cognito::UserPool", {
       UserPoolName: "peft-user-pool",
+      MfaConfiguration: "OPTIONAL",
+      EnabledMfas: ["SOFTWARE_TOKEN_MFA"],
       Policies: Match.objectLike({
         PasswordPolicy: Match.objectLike({
-          MinimumLength: 8,
+          MinimumLength: 12,
           RequireUppercase: true,
           RequireNumbers: true,
+          RequireSymbols: true,
         }),
       }),
     });
@@ -35,7 +38,6 @@ describe("AuthStack", () => {
       ClientName: "peft-web-client",
       GenerateSecret: false,
       ExplicitAuthFlows: Match.arrayWith([
-        "ALLOW_USER_PASSWORD_AUTH",
         "ALLOW_USER_SRP_AUTH",
       ]),
     });

@@ -33,13 +33,19 @@ describe("TrainingStack", () => {
     });
   });
 
-  test("has AmazonSageMakerFullAccess managed policy", () => {
-    template.hasResourceProperties("AWS::IAM::Role", {
-      ManagedPolicyArns: Match.arrayWith([
-        {
-          "Fn::Join": Match.anyValue(),
-        },
-      ]),
+  test("has scoped SageMaker training permissions (no managed policy)", () => {
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith([
+              "sagemaker:CreateTrainingJob",
+              "sagemaker:DescribeTrainingJob",
+            ]),
+            Effect: "Allow",
+          }),
+        ]),
+      },
     });
   });
 

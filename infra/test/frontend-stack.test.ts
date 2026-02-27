@@ -13,6 +13,7 @@ describe("FrontendStack", () => {
     const inferenceStack = new InferenceStack(app, "TestInference", {
       modelBucket: storageStack.modelBucket,
       cognitoUserPoolId: "us-east-1_testpool",
+      cognitoClientId: "test-client-id",
     });
     const stack = new FrontendStack(app, "TestFrontend", {
       lambdaFunctionUrl: inferenceStack.lambdaFunctionUrl,
@@ -22,11 +23,9 @@ describe("FrontendStack", () => {
     template = Template.fromStack(stack);
   });
 
-  test("creates S3 bucket for frontend", () => {
-    template.hasResourceProperties("AWS::S3::Bucket", {
-      BucketName: Match.objectLike({
-        "Fn::Join": Match.anyValue(),
-      }),
+  test("creates S3 bucket policy for frontend", () => {
+    template.hasResourceProperties("AWS::S3::BucketPolicy", {
+      Bucket: Match.anyValue(),
     });
   });
 

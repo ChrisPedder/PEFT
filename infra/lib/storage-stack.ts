@@ -1,6 +1,5 @@
 import * as cdk from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
-import * as iam from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
 
 export class StorageStack extends cdk.Stack {
@@ -17,13 +16,17 @@ export class StorageStack extends cdk.Stack {
       bucketName: `peft-speech-data-${cdk.Aws.ACCOUNT_ID}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
-      versioned: false,
+      versioned: true,
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       lifecycleRules: [
         {
           id: "CleanupIncompleteUploads",
           abortIncompleteMultipartUploadAfter: cdk.Duration.days(7),
+        },
+        {
+          id: "ExpireOldVersions",
+          noncurrentVersionExpiration: cdk.Duration.days(90),
         },
       ],
     });
@@ -31,9 +34,8 @@ export class StorageStack extends cdk.Stack {
     // Processed training data (clean_and_format output)
     this.trainingDataBucket = new s3.Bucket(this, "TrainingDataBucket", {
       bucketName: `peft-training-data-${cdk.Aws.ACCOUNT_ID}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-      versioned: false,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      versioned: true,
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       lifecycleRules: [
@@ -41,17 +43,26 @@ export class StorageStack extends cdk.Stack {
           id: "CleanupIncompleteUploads",
           abortIncompleteMultipartUploadAfter: cdk.Duration.days(7),
         },
+        {
+          id: "ExpireOldVersions",
+          noncurrentVersionExpiration: cdk.Duration.days(90),
+        },
       ],
     });
 
     // Trained model weights / artifacts
     this.modelBucket = new s3.Bucket(this, "ModelArtifactsBucket", {
       bucketName: `peft-model-artifacts-${cdk.Aws.ACCOUNT_ID}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
       versioned: true,
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      lifecycleRules: [
+        {
+          id: "ExpireOldVersions",
+          noncurrentVersionExpiration: cdk.Duration.days(90),
+        },
+      ],
     });
 
     // Static frontend assets (served by CloudFront)
@@ -62,19 +73,6 @@ export class StorageStack extends cdk.Stack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
     });
-
-    // SageMaker execution role with access to data and model buckets
-    const sagemakerRole = new iam.Role(this, "SageMakerExecutionRole", {
-      roleName: "PeftSageMakerExecutionRole",
-      assumedBy: new iam.ServicePrincipal("sagemaker.amazonaws.com"),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSageMakerFullAccess"),
-      ],
-    });
-
-    this.dataBucket.grantReadWrite(sagemakerRole);
-    this.trainingDataBucket.grantReadWrite(sagemakerRole);
-    this.modelBucket.grantReadWrite(sagemakerRole);
 
     // Outputs
     new cdk.CfnOutput(this, "DataBucketName", {
@@ -88,9 +86,6 @@ export class StorageStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "FrontendBucketName", {
       value: this.frontendBucket.bucketName,
-    });
-    new cdk.CfnOutput(this, "SageMakerRoleArn", {
-      value: sagemakerRole.roleArn,
     });
   }
 }
