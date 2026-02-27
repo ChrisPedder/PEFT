@@ -41,7 +41,7 @@ Speeches (web) ──► Scraper (Batch) ──► Raw JSONL (S3)
 
 - AWS account with CDK bootstrapped
 - GitHub repo secrets: `AWS_DEPLOY_ROLE_ARN` (OIDC role for CI/CD)
-- Python 3.11+, Node.js 18+
+- Python 3.11+, Node.js 18+, [uv](https://docs.astral.sh/uv/) for Python package management
 
 ### 1. Deploy infrastructure
 
@@ -61,7 +61,7 @@ gh workflow run scrape.yml
 
 # Or locally
 cd backend
-python -m scraper.scrape_speeches --bucket peft-speech-data-{ACCOUNT_ID}
+uv run python -m scraper.scrape_speeches --bucket peft-speech-data-{ACCOUNT_ID}
 ```
 
 This scrapes Obama speeches from the American Presidency Project and White House Archives, storing raw JSONL files in S3.
@@ -76,7 +76,7 @@ gh workflow run process.yml -f sample_size=0
 
 # Or locally
 cd backend
-python -m scraper.clean_and_format \
+uv run python -m scraper.clean_and_format \
   --bucket peft-speech-data-{ACCOUNT_ID} \
   --output-bucket peft-training-data-{ACCOUNT_ID}
 ```
@@ -99,7 +99,7 @@ gh workflow run train.yml -f epochs=3 -f batch_size=4 -f learning_rate=2e-4
 
 # Or locally
 cd backend
-python scripts/launch_training.py --epochs 3 --batch-size 4 --learning-rate 2e-4
+uv run python scripts/launch_training.py --epochs 3 --batch-size 4 --learning-rate 2e-4
 ```
 
 This launches a SageMaker training job that:
@@ -155,23 +155,35 @@ Users are managed via a CLI script (self-signup is disabled):
 cd backend
 
 # Create a user
-python scripts/manage_users.py create --email user@example.com --password 'MyPassword123!'
+uv run python scripts/manage_users.py create --email user@example.com --password 'MyPassword123!'
 
 # List users
-python scripts/manage_users.py list
+uv run python scripts/manage_users.py list
 
 # Reset password
-python scripts/manage_users.py reset-password --email user@example.com --password 'NewPass456!'
+uv run python scripts/manage_users.py reset-password --email user@example.com --password 'NewPass456!'
 
 # Delete user
-python scripts/manage_users.py delete --email user@example.com
+uv run python scripts/manage_users.py delete --email user@example.com
 ```
 
 Password requirements: 8+ characters, at least one uppercase letter and one digit.
 
 ### 8. Use the frontend
 
-Open the CloudFront URL (from CDK outputs). Log in with the credentials created in step 7. Ask questions and get streaming responses in Obama's speaking style.
+Find the frontend URL from CDK stack outputs:
+
+```bash
+# CloudFront URL (if PeftFrontendStack is deployed)
+aws cloudformation describe-stacks --stack-name PeftFrontendStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`DistributionDomainName`].OutputValue' --output text
+
+# Or the Lambda Function URL directly (always available)
+aws cloudformation describe-stacks --stack-name PeftInferenceStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`LambdaFunctionUrl`].OutputValue' --output text
+```
+
+Open the URL, log in with the credentials created in step 7, and ask questions to get streaming responses in Obama's speaking style.
 
 ## Project Structure
 
@@ -217,7 +229,7 @@ Open the CloudFront URL (from CDK outputs). Log in with the credentials created 
 
 ```bash
 # Backend tests
-cd backend && pip install -e ".[dev,inference]" && pytest --cov
+cd backend && uv sync && uv run pytest --cov
 
 # Frontend tests
 cd frontend && npm ci && npm test
