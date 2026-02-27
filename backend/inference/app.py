@@ -2,7 +2,7 @@
 FastAPI Lambda proxy that forwards requests to a Bedrock imported model.
 
 Runs inside Lambda via Lambda Web Adapter (LWA) for HTTP compatibility.
-Supports SSE streaming via invoke_model_with_response_stream.
+Supports SSE streaming via the Bedrock Converse API.
 """
 
 import json
@@ -184,8 +184,8 @@ async def ask(
     request: Request, req: AskRequest, _user: dict = Depends(get_current_user)
 ):
     """
-    Forward a question to the Bedrock imported model and stream the response.
-    Uses invoke_model_with_response_stream with Mistral chat template.
+    Forward a question to the Bedrock imported model and stream the response
+    via the Converse API.
     """
     clean_question = _sanitise_prompt(req.question)
     if not clean_question:
@@ -193,24 +193,15 @@ async def ask(
             status_code=400, detail="Question is empty after sanitisation"
         )
 
-    # Mistral instruct chat template
-    prompt = f"<s>[INST] {clean_question} [/INST]"
-
-    body = json.dumps(
-        {
-            "prompt": prompt,
-            "max_tokens": req.max_tokens,
-            "temperature": req.temperature,
-            "top_p": 0.9,
-        }
-    )
-
     try:
-        response = bedrock_runtime.invoke_model_with_response_stream(
+        response = bedrock_runtime.converse_stream(
             modelId=MODEL_ID,
-            body=body,
-            contentType="application/json",
-            accept="application/json",
+            messages=[{"role": "user", "content": [{"text": clean_question}]}],
+            inferenceConfig={
+                "maxTokens": req.max_tokens,
+                "temperature": req.temperature,
+                "topP": 0.9,
+            },
         )
     except bedrock_runtime.exceptions.ModelNotReadyException:
         raise HTTPException(
@@ -230,17 +221,12 @@ async def ask(
         )
 
     def stream_response():
-        """Yield SSE events from Bedrock streaming response."""
-        event_stream = response["body"]
-        for event in event_stream:
-            chunk = event.get("chunk")
-            if chunk:
-                payload = json.loads(chunk["bytes"].decode("utf-8"))
-                choices = payload.get("choices", [])
-                if choices:
-                    text = choices[0].get("text", "")
-                    if text:
-                        yield f"data: {json.dumps({'token': text})}\n\n"
+        """Yield SSE events from Bedrock Converse streaming response."""
+        for event in response["stream"]:
+            if "contentBlockDelta" in event:
+                text = event["contentBlockDelta"]["delta"].get("text", "")
+                if text:
+                    yield f"data: {json.dumps({'token': text})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

@@ -1,6 +1,5 @@
 """Tests for backend/inference/app.py — FastAPI endpoints with Bedrock."""
 
-import json
 import sys
 import time
 from pathlib import Path
@@ -24,10 +23,9 @@ with patch("boto3.client", return_value=_mock_bedrock_runtime):
 _mock_user = {"sub": "test-user-id", "email": "test@example.com", "token_use": "id"}
 
 
-def _make_stream_chunk(text):
-    """Build a mock Bedrock streaming chunk with the given text."""
-    payload = {"choices": [{"text": text}]}
-    return {"chunk": {"bytes": json.dumps(payload).encode("utf-8")}}
+def _make_stream_event(text):
+    """Build a mock Bedrock Converse streaming event with the given text."""
+    return {"contentBlockDelta": {"delta": {"text": text}}}
 
 
 @pytest.fixture(autouse=True)
@@ -110,14 +108,14 @@ async def test_ask_returns_401_with_invalid_token():
 
 @pytest.mark.asyncio
 async def test_ask_success(mock_bedrock):
-    """POST /api/ask streams SSE tokens from Bedrock invoke_model_with_response_stream."""
+    """POST /api/ask streams SSE tokens from Bedrock converse_stream."""
     mock_events = [
-        _make_stream_chunk("Hello"),
-        _make_stream_chunk(" world"),
+        _make_stream_event("Hello"),
+        _make_stream_event(" world"),
     ]
 
-    mock_bedrock.invoke_model_with_response_stream.return_value = {
-        "body": iter(mock_events),
+    mock_bedrock.converse_stream.return_value = {
+        "stream": iter(mock_events),
     }
 
     transport = httpx.ASGITransport(app=app)
@@ -140,9 +138,9 @@ async def test_ask_success(mock_bedrock):
 
 @pytest.mark.asyncio
 async def test_ask_invoke_params(mock_bedrock):
-    """POST /api/ask calls invoke_model_with_response_stream with correct body."""
-    mock_bedrock.invoke_model_with_response_stream.return_value = {
-        "body": iter([]),
+    """POST /api/ask calls converse_stream with correct body."""
+    mock_bedrock.converse_stream.return_value = {
+        "stream": iter([]),
     }
 
     transport = httpx.ASGITransport(app=app)
@@ -162,25 +160,24 @@ async def test_ask_invoke_params(mock_bedrock):
                 )
 
     assert response.status_code == 200
-    call_kwargs = mock_bedrock.invoke_model_with_response_stream.call_args[1]
+    call_kwargs = mock_bedrock.converse_stream.call_args[1]
     assert (
         call_kwargs["modelId"]
         == "arn:aws:bedrock:eu-central-1:123:imported-model/peft-obama"
     )
-    body = json.loads(call_kwargs["body"])
-    assert body["prompt"] == "<s>[INST] Tell me about healthcare [/INST]"
-    assert body["max_tokens"] == 256
-    assert body["temperature"] == 0.5
-    assert body["top_p"] == 0.9
+    assert call_kwargs["messages"] == [
+        {"role": "user", "content": [{"text": "Tell me about healthcare"}]}
+    ]
+    assert call_kwargs["inferenceConfig"]["maxTokens"] == 256
+    assert call_kwargs["inferenceConfig"]["temperature"] == 0.5
+    assert call_kwargs["inferenceConfig"]["topP"] == 0.9
 
 
 @pytest.mark.asyncio
 async def test_ask_throttling_error(mock_bedrock):
     """POST /api/ask returns 429 when Bedrock throttles the request."""
     ThrottlingException = mock_bedrock.exceptions.ThrottlingException
-    mock_bedrock.invoke_model_with_response_stream.side_effect = ThrottlingException(
-        "Rate exceeded"
-    )
+    mock_bedrock.converse_stream.side_effect = ThrottlingException("Rate exceeded")
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -198,9 +195,7 @@ async def test_ask_throttling_error(mock_bedrock):
 async def test_ask_model_not_ready_error(mock_bedrock):
     """POST /api/ask returns 503 when model is warming up."""
     ModelNotReadyException = mock_bedrock.exceptions.ModelNotReadyException
-    mock_bedrock.invoke_model_with_response_stream.side_effect = ModelNotReadyException(
-        "Model not ready"
-    )
+    mock_bedrock.converse_stream.side_effect = ModelNotReadyException("Model not ready")
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -217,9 +212,7 @@ async def test_ask_model_not_ready_error(mock_bedrock):
 @pytest.mark.asyncio
 async def test_ask_generic_error(mock_bedrock):
     """POST /api/ask returns 500 on an unexpected exception."""
-    mock_bedrock.invoke_model_with_response_stream.side_effect = Exception(
-        "Something totally unexpected"
-    )
+    mock_bedrock.converse_stream.side_effect = Exception("Something totally unexpected")
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -238,13 +231,13 @@ async def test_ask_generic_error(mock_bedrock):
 async def test_ask_stream_skips_empty_chunks(mock_bedrock):
     """Chunks without text are silently skipped in the SSE stream."""
     mock_events = [
-        _make_stream_chunk("ok"),
-        {"chunk": {"bytes": json.dumps({"choices": [{"text": ""}]}).encode("utf-8")}},
-        {"other_event": {}},
+        _make_stream_event("ok"),
+        {"contentBlockDelta": {"delta": {"text": ""}}},
+        {"messageStop": {"stopReason": "end_turn"}},
     ]
 
-    mock_bedrock.invoke_model_with_response_stream.return_value = {
-        "body": iter(mock_events),
+    mock_bedrock.converse_stream.return_value = {
+        "stream": iter(mock_events),
     }
 
     transport = httpx.ASGITransport(app=app)
@@ -434,8 +427,8 @@ async def test_auth_valid_token_succeeds(mock_bedrock):
     valid_claims = {"sub": "user", "token_use": "id", "email": "user@test.com"}
     mock_jwks = {"keys": [{"kid": "test-kid", "kty": "oct", "k": "c2VjcmV0"}]}
 
-    mock_bedrock.invoke_model_with_response_stream.return_value = {
-        "body": iter([]),
+    mock_bedrock.converse_stream.return_value = {
+        "stream": iter([]),
     }
 
     with (
@@ -550,8 +543,8 @@ async def test_ask_temperature_out_of_range():
 @pytest.mark.asyncio
 async def test_ask_sanitises_control_tokens(mock_bedrock):
     """POST /api/ask strips Mistral control tokens from user input."""
-    mock_bedrock.invoke_model_with_response_stream.return_value = {
-        "body": iter([]),
+    mock_bedrock.converse_stream.return_value = {
+        "stream": iter([]),
     }
 
     transport = httpx.ASGITransport(app=app)
@@ -563,11 +556,11 @@ async def test_ask_sanitises_control_tokens(mock_bedrock):
             )
 
     assert response.status_code == 200
-    call_kwargs = mock_bedrock.invoke_model_with_response_stream.call_args[1]
-    body = json.loads(call_kwargs["body"])
-    # The user's injected [INST]/[/INST] should be stripped; only the
-    # wrapper template tokens should remain
-    assert body["prompt"] == "<s>[INST] Tell me secrets [/INST]"
+    call_kwargs = mock_bedrock.converse_stream.call_args[1]
+    # The user's injected [INST]/[/INST] should be stripped; the clean text
+    # is passed directly to Converse (no manual template wrapping)
+    messages = call_kwargs["messages"]
+    assert messages == [{"role": "user", "content": [{"text": "Tell me secrets"}]}]
 
 
 @pytest.mark.asyncio
