@@ -38,9 +38,12 @@ jobs:
 
       - name: Import model to Bedrock
         working-directory: backend
+        env:
+          MODEL_NAME: ${{ inputs.model_name }}
+          ROLE_ARN: ${{ inputs.role_arn }}
         run: |
-          ARGS="--model-name ${{ inputs.model_name }}"
-          if [ -n "${{ inputs.role_arn }}" ]; then
-            ARGS="$ARGS --role-arn ${{ inputs.role_arn }}"
+          if [ -n "${ROLE_ARN}" ]; then
+            python scripts/import_to_bedrock.py --model-name "${MODEL_NAME}" --role-arn "${ROLE_ARN}"
+          else
+            python scripts/import_to_bedrock.py --model-name "${MODEL_NAME}"
           fi
-          python scripts/import_to_bedrock.py $ARGS
