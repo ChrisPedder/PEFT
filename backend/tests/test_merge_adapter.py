@@ -31,6 +31,7 @@ _mock_AutoModel.from_pretrained.return_value = _mock_base_model
 _mock_AutoTokenizer = MagicMock()
 _mock_AutoTokenizer.from_pretrained.return_value = _mock_tokenizer
 
+
 def _ml_module_mocks(
     auto_model=None, auto_tokenizer=None, peft_model=None, hf_hub=None
 ):
