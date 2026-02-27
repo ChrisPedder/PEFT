@@ -113,7 +113,7 @@ class TestMergeWithoutUpload:
             str(merged_dir), safe_serialization=True
         )
         mock_AutoTokenizer_local.from_pretrained.assert_called_once_with(
-            str(adapter_dir)
+            "mistralai/Mistral-7B-Instruct-v0.3"
         )
         mock_tok.save_pretrained.assert_called_once_with(str(merged_dir))
 
