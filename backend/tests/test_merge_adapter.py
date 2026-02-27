@@ -1,9 +1,10 @@
 """Tests for backend/training/merge_adapter.py."""
 
+import json
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import boto3
 import pytest
@@ -30,21 +31,36 @@ _mock_AutoModel.from_pretrained.return_value = _mock_base_model
 _mock_AutoTokenizer = MagicMock()
 _mock_AutoTokenizer.from_pretrained.return_value = _mock_tokenizer
 
+def _ml_module_mocks(
+    auto_model=None, auto_tokenizer=None, peft_model=None, hf_hub=None
+):
+    """Return sys.modules dict that mocks heavy ML dependencies."""
+    return {
+        "torch": _mock_torch,
+        "peft": MagicMock(PeftModel=peft_model or _mock_PeftModel),
+        "transformers": MagicMock(
+            AutoModelForCausalLM=auto_model or _mock_AutoModel,
+            AutoTokenizer=auto_tokenizer or _mock_AutoTokenizer,
+        ),
+        "huggingface_hub": hf_hub or MagicMock(),
+    }
+
+
+def _make_tok_save_side_effect(output_dir_ref):
+    """Return a side_effect that writes a tokenizer_config.json when called."""
+
+    def _save(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+        with open(os.path.join(output_dir, "tokenizer_config.json"), "w") as f:
+            json.dump({"tokenizer_class": "TokenizersBackend"}, f)
+
+    return _save
+
 
 class TestArgParsing:
     def test_arg_parsing(self):
         """Verify required args (adapter-path, merged-output) and optional upload-bucket."""
-        with patch.dict(
-            "sys.modules",
-            {
-                "torch": _mock_torch,
-                "peft": MagicMock(PeftModel=_mock_PeftModel),
-                "transformers": MagicMock(
-                    AutoModelForCausalLM=_mock_AutoModel,
-                    AutoTokenizer=_mock_AutoTokenizer,
-                ),
-            },
-        ):
+        with patch.dict("sys.modules", _ml_module_mocks()):
             import importlib
             import backend.training.merge_adapter as mod
 
@@ -67,6 +83,7 @@ class TestMergeWithoutUpload:
         mock_peft = MagicMock()
         mock_merged = MagicMock()
         mock_tok = MagicMock()
+        mock_tok.save_pretrained.side_effect = _make_tok_save_side_effect(merged_dir)
 
         mock_peft.merge_and_unload.return_value = mock_merged
         mock_PeftModel_local = MagicMock()
@@ -76,16 +93,20 @@ class TestMergeWithoutUpload:
         mock_AutoTokenizer_local = MagicMock()
         mock_AutoTokenizer_local.from_pretrained.return_value = mock_tok
 
+        # Create a fake tokenizer.model for hf_hub_download to return
+        fake_tok_model = tmp_path / "fake_tokenizer.model"
+        fake_tok_model.write_bytes(b"fake-sentencepiece-model")
+        mock_hf_hub = MagicMock()
+        mock_hf_hub.hf_hub_download.return_value = str(fake_tok_model)
+
         with patch.dict(
             "sys.modules",
-            {
-                "torch": _mock_torch,
-                "peft": MagicMock(PeftModel=mock_PeftModel_local),
-                "transformers": MagicMock(
-                    AutoModelForCausalLM=mock_AutoModel_local,
-                    AutoTokenizer=mock_AutoTokenizer_local,
-                ),
-            },
+            _ml_module_mocks(
+                auto_model=mock_AutoModel_local,
+                auto_tokenizer=mock_AutoTokenizer_local,
+                peft_model=mock_PeftModel_local,
+                hf_hub=mock_hf_hub,
+            ),
         ):
             import importlib
             import backend.training.merge_adapter as mod
@@ -113,9 +134,14 @@ class TestMergeWithoutUpload:
             str(merged_dir), safe_serialization=True
         )
         mock_AutoTokenizer_local.from_pretrained.assert_called_once_with(
-            "mistralai/Mistral-7B-Instruct-v0.3", use_fast=False
+            "mistralai/Mistral-7B-Instruct-v0.3"
         )
         mock_tok.save_pretrained.assert_called_once_with(str(merged_dir))
+
+        # Verify tokenizer_config.json was patched
+        with open(os.path.join(str(merged_dir), "tokenizer_config.json")) as f:
+            tok_config = json.load(f)
+        assert tok_config["tokenizer_class"] == "LlamaTokenizerFast"
 
 
 class TestS3Upload:
@@ -139,6 +165,7 @@ class TestS3Upload:
         mock_peft_m = MagicMock()
         mock_merged_m = MagicMock()
         mock_tok_m = MagicMock()
+        mock_tok_m.save_pretrained.side_effect = _make_tok_save_side_effect(merged_dir)
 
         mock_peft_m.merge_and_unload.return_value = mock_merged_m
         mock_PeftModel_s3 = MagicMock()
@@ -148,20 +175,23 @@ class TestS3Upload:
         mock_AutoTokenizer_s3 = MagicMock()
         mock_AutoTokenizer_s3.from_pretrained.return_value = mock_tok_m
 
-        # Make save_pretrained a no-op (files already exist)
+        # Make model save_pretrained a no-op (files already exist)
         mock_merged_m.save_pretrained = MagicMock()
-        mock_tok_m.save_pretrained = MagicMock()
+
+        # Create a fake tokenizer.model for hf_hub_download to return
+        fake_tok_model = tmp_path / "fake_tokenizer.model"
+        fake_tok_model.write_bytes(b"fake-sentencepiece-model")
+        mock_hf_hub = MagicMock()
+        mock_hf_hub.hf_hub_download.return_value = str(fake_tok_model)
 
         with patch.dict(
             "sys.modules",
-            {
-                "torch": _mock_torch,
-                "peft": MagicMock(PeftModel=mock_PeftModel_s3),
-                "transformers": MagicMock(
-                    AutoModelForCausalLM=mock_AutoModel_s3,
-                    AutoTokenizer=mock_AutoTokenizer_s3,
-                ),
-            },
+            _ml_module_mocks(
+                auto_model=mock_AutoModel_s3,
+                auto_tokenizer=mock_AutoTokenizer_s3,
+                peft_model=mock_PeftModel_s3,
+                hf_hub=mock_hf_hub,
+            ),
         ):
             import importlib
             import backend.training.merge_adapter as mod
@@ -187,3 +217,4 @@ class TestS3Upload:
         keys = sorted([o["Key"] for o in objs["Contents"]])
         assert "merged-model/config.json" in keys
         assert "merged-model/model.safetensors" in keys
+        assert "merged-model/tokenizer_config.json" in keys

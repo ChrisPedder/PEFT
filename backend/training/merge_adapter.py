@@ -11,9 +11,12 @@ Usage:
 """
 
 import argparse
+import json
 import os
+import shutil
 
 import torch
+from huggingface_hub import hf_hub_download
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -58,10 +61,25 @@ def main() -> None:
     print(f"Saving merged model to: {args.merged_output}")
     model.save_pretrained(args.merged_output, safe_serialization=True)
 
-    # use_fast=False saves tokenizer.model (SentencePiece binary) which Bedrock requires,
-    # and sets tokenizer_class to LlamaTokenizer (a Bedrock-supported class).
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, use_fast=False)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
     tokenizer.save_pretrained(args.merged_output)
+
+    # Bedrock requires tokenizer.model (SentencePiece binary) and a recognized
+    # tokenizer_class. Recent transformers versions omit tokenizer.model and save
+    # tokenizer_class as "TokenizersBackend", so we fix both here.
+    tok_model_dest = os.path.join(args.merged_output, "tokenizer.model")
+    if not os.path.exists(tok_model_dest):
+        src = hf_hub_download(repo_id=BASE_MODEL, filename="tokenizer.model")
+        shutil.copy(src, tok_model_dest)
+        print("Downloaded tokenizer.model from HuggingFace Hub")
+
+    tok_config_path = os.path.join(args.merged_output, "tokenizer_config.json")
+    with open(tok_config_path) as f:
+        tok_config = json.load(f)
+    tok_config["tokenizer_class"] = "LlamaTokenizerFast"
+    with open(tok_config_path, "w") as f:
+        json.dump(tok_config, f, indent=2)
+    print("Set tokenizer_class to LlamaTokenizerFast for Bedrock")
 
     print("Merge complete!")
 
