@@ -94,7 +94,7 @@ jobs:
         run: pytest --ignore=tests/test_train.py --cov --cov-report=xml --cov-fail-under=90
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.6.0
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v5.6.0
         with:
           files: backend/coverage.xml
           flags: python
@@ -119,7 +119,7 @@ jobs:
         working-directory: frontend
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.6.0
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v5.6.0
         with:
           files: frontend/coverage/clover.xml
           flags: frontend
